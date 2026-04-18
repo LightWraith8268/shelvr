@@ -155,3 +155,22 @@ async def test_format_file_hash_is_globally_unique(session: AsyncSession) -> Non
     session.add(fmt2)
     with pytest.raises(IntegrityError):
         await session.flush()
+
+
+@pytest.mark.asyncio
+async def test_identifier_composite_unique(session: AsyncSession) -> None:
+    """(book_id, scheme, value) must be unique."""
+    from sqlalchemy.exc import IntegrityError
+
+    from shelvr.db.models import Book, Identifier
+
+    book = Book(title="A Wizard of Earthsea")
+    session.add(book)
+    await session.flush()
+
+    session.add(Identifier(book_id=book.id, scheme="isbn", value="9780553262506"))
+    await session.flush()
+
+    session.add(Identifier(book_id=book.id, scheme="isbn", value="9780553262506"))
+    with pytest.raises(IntegrityError):
+        await session.flush()
