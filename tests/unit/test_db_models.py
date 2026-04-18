@@ -174,3 +174,58 @@ async def test_identifier_composite_unique(session: AsyncSession) -> None:
     session.add(Identifier(book_id=book.id, scheme="isbn", value="9780553262506"))
     with pytest.raises(IntegrityError):
         await session.flush()
+
+
+@pytest.mark.asyncio
+async def test_user_create(session: AsyncSession) -> None:
+    """A user can be created with a unique username."""
+    from shelvr.db.models import User
+
+    user = User(username="alice", password_hash="$argon2id$...", role="admin")
+    session.add(user)
+    await session.flush()
+
+    assert user.id is not None
+
+
+@pytest.mark.asyncio
+async def test_device_linked_to_user(session: AsyncSession) -> None:
+    """A device belongs to a user."""
+    from shelvr.db.models import Device, User
+
+    user = User(username="alice", password_hash="hash", role="admin")
+    session.add(user)
+    await session.flush()
+
+    device = Device(user_id=user.id, name="Pixel 9", platform="android")
+    session.add(device)
+    await session.flush()
+
+    assert device.id is not None
+
+
+@pytest.mark.asyncio
+async def test_reading_progress_per_device(session: AsyncSession) -> None:
+    """Reading progress is keyed by (book, device) so different devices don't clobber."""
+    from shelvr.db.models import Book, Device, ReadingProgress, User
+
+    user = User(username="alice", password_hash="hash", role="admin")
+    session.add(user)
+    await session.flush()
+
+    device = Device(user_id=user.id, name="Pixel 9", platform="android")
+    book = Book(title="A Wizard of Earthsea")
+    session.add_all([device, book])
+    await session.flush()
+
+    progress = ReadingProgress(
+        book_id=book.id,
+        device_id=device.id,
+        locator='{"cfi":"epubcfi(/6/4!/4/2/2/2)"}',
+        percent=0.42,
+    )
+    session.add(progress)
+    await session.flush()
+
+    assert progress.id is not None
+    assert progress.percent == pytest.approx(0.42)
