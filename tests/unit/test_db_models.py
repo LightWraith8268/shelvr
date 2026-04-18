@@ -35,3 +35,17 @@ async def test_series_create(session: AsyncSession) -> None:
 
     assert series.id is not None
     assert series.name == "Earthsea"
+
+
+@pytest.mark.asyncio
+async def test_tag_create(session: AsyncSession) -> None:
+    """A tag can be created with name + optional color."""
+    from shelvr.db.models import Tag
+
+    tag = Tag(name="science-fiction", color="#4287f5")
+    session.add(tag)
+    await session.flush()
+
+    assert tag.id is not None
+    assert tag.name == "science-fiction"
+    assert tag.color == "#4287f5"
