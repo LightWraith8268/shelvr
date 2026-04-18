@@ -9,16 +9,16 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
 from shelvr.config import load_settings
-from shelvr.db.base import Base
 
 # Import models so Base.metadata is populated.
 from shelvr.db import models  # noqa: F401
+from shelvr.db.base import Base
 
 config = context.config
 
