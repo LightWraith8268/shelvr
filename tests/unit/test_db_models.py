@@ -245,3 +245,28 @@ async def test_job_create(session: AsyncSession) -> None:
     await session.flush()
 
     assert job.id is not None
+
+
+@pytest.mark.asyncio
+async def test_plugin_data_composite_unique(session: AsyncSession) -> None:
+    """(plugin_id, key) is unique."""
+    from sqlalchemy.exc import IntegrityError
+
+    from shelvr.db.models import PluginData
+
+    session.add(PluginData(plugin_id="goodreads", key="api_key", value_json='"abc123"'))
+    await session.flush()
+
+    session.add(PluginData(plugin_id="goodreads", key="api_key", value_json='"xyz"'))
+    with pytest.raises(IntegrityError):
+        await session.flush()
+
+
+@pytest.mark.asyncio
+async def test_plugin_data_same_key_different_plugins(session: AsyncSession) -> None:
+    """Different plugins can store the same key."""
+    from shelvr.db.models import PluginData
+
+    session.add(PluginData(plugin_id="goodreads", key="api_key", value_json='"a"'))
+    session.add(PluginData(plugin_id="openlibrary", key="api_key", value_json='"b"'))
+    await session.flush()  # should not raise
