@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import StaticPool
 
 
 @pytest.fixture
@@ -43,9 +44,15 @@ def settings(monkeypatch: pytest.MonkeyPatch, library_path: Path, jwt_secret: st
 @pytest_asyncio.fixture
 async def engine() -> AsyncGenerator[AsyncEngine, None]:
     """Per-test in-memory async SQLite engine with all tables created."""
+    from shelvr.db import models  # noqa: F401  ensure all models register with metadata
     from shelvr.db.base import Base
 
-    e = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
+    e = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     async with e.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     try:
