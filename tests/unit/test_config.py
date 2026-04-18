@@ -75,11 +75,12 @@ def test_env_beats_toml(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
     library.mkdir()
     monkeypatch.setenv("SHELVR_LIBRARY_PATH", str(library))
     config_file = tmp_path / "shelvr.toml"
-    config_file.write_text('host = "10.0.0.1"\n', encoding="utf-8")
+    config_file.write_text('host = "10.0.0.1"\nport = 8888\n', encoding="utf-8")
 
     settings = load_settings(config_file=config_file)
 
-    assert settings.host == "192.168.1.1"
+    assert settings.host == "192.168.1.1"  # env wins over TOML
+    assert settings.port == 8888  # TOML-only field still applied
 
 
 def test_missing_jwt_secret_fails_loudly(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

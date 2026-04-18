@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import Field
+from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -32,7 +33,7 @@ class _TomlSource(PydanticBaseSettingsSource):
         super().__init__(settings_cls)
         self._toml_values = toml_values
 
-    def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
         if field_name in self._toml_values:
             return self._toml_values[field_name], field_name, False
         return None, field_name, False
@@ -89,6 +90,7 @@ def load_settings(config_file: Path | None = Path("shelvr.toml")) -> Settings:
 
     # Build a one-off Settings subclass whose source chain puts TOML *below* env,
     # so SHELVR_* environment variables override anything in shelvr.toml.
+    # Nested subclass lets us close over toml_values without a module-level global.
     class _SettingsWithToml(Settings):
         @classmethod
         def settings_customise_sources(
