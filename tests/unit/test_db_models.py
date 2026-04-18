@@ -49,3 +49,49 @@ async def test_tag_create(session: AsyncSession) -> None:
     assert tag.id is not None
     assert tag.name == "science-fiction"
     assert tag.color == "#4287f5"
+
+
+@pytest.mark.asyncio
+async def test_book_create_minimal(session: AsyncSession) -> None:
+    """A book can be created with just a title."""
+    from shelvr.db.models import Book
+
+    book = Book(title="A Wizard of Earthsea")
+    session.add(book)
+    await session.flush()
+
+    assert book.id is not None
+    assert book.title == "A Wizard of Earthsea"
+    assert book.date_added is not None
+
+
+@pytest.mark.asyncio
+async def test_book_author_relationship(session: AsyncSession) -> None:
+    """Books can be linked to authors through the book_authors junction."""
+    from shelvr.db.models import Author, Book
+
+    author = Author(name="Ursula K. Le Guin", sort_name="Le Guin, Ursula K.")
+    book = Book(title="A Wizard of Earthsea", sort_title="Wizard of Earthsea, A")
+    book.authors.append(author)
+    session.add(book)
+    await session.flush()
+    await session.refresh(book)
+
+    assert len(book.authors) == 1
+    assert book.authors[0].name == "Ursula K. Le Guin"
+
+
+@pytest.mark.asyncio
+async def test_book_tag_relationship(session: AsyncSession) -> None:
+    """Books can be linked to tags."""
+    from shelvr.db.models import Book, Tag
+
+    tag = Tag(name="fantasy")
+    book = Book(title="A Wizard of Earthsea")
+    book.tags.append(tag)
+    session.add(book)
+    await session.flush()
+    await session.refresh(book)
+
+    assert len(book.tags) == 1
+    assert book.tags[0].name == "fantasy"
