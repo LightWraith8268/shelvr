@@ -7,6 +7,7 @@ from shelvr.db.models.book import Book, book_authors, book_tags
 from shelvr.db.models.device import Device
 from shelvr.db.models.format import Format
 from shelvr.db.models.identifier import Identifier
+from shelvr.db.models.job import Job
 from shelvr.db.models.reading_progress import ReadingProgress
 from shelvr.db.models.series import Series
 from shelvr.db.models.tag import Tag
@@ -18,6 +19,7 @@ __all__ = [
     "Device",
     "Format",
     "Identifier",
+    "Job",
     "ReadingProgress",
     "Series",
     "Tag",

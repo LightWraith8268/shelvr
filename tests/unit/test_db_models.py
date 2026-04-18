@@ -229,3 +229,19 @@ async def test_reading_progress_per_device(session: AsyncSession) -> None:
 
     assert progress.id is not None
     assert progress.percent == pytest.approx(0.42)
+
+
+@pytest.mark.asyncio
+async def test_job_create(session: AsyncSession) -> None:
+    """A job can be created with type, status, and payload/result JSON."""
+    from shelvr.db.models import Job
+
+    job = Job(
+        type="import",
+        status="pending",
+        payload_json='{"path": "/tmp/book.epub"}',
+    )
+    session.add(job)
+    await session.flush()
+
+    assert job.id is not None
