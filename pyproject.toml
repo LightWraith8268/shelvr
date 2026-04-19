@@ -33,6 +33,8 @@ dependencies = [
     "ebooklib>=0.18",
     "pymupdf>=1.24",
     "mobi>=0.3.3",
+    "Pillow>=10.3",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -96,5 +98,5 @@ disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["alembic.*", "jose.*", "passlib.*", "ebooklib.*", "fitz", "fitz.*", "mobi", "mobi.*"]
+module = ["alembic.*", "jose.*", "passlib.*", "ebooklib.*", "fitz", "fitz.*", "mobi", "mobi.*", "PIL", "PIL.*"]
 ignore_missing_imports = true
