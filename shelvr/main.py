@@ -11,6 +11,8 @@ from fastapi.responses import Response
 from shelvr import __version__
 from shelvr.api.v1.router import router as v1_router
 from shelvr.config import load_settings
+from shelvr.db.base import create_engine
+from shelvr.db.session import make_session_factory
 from shelvr.logging_config import (
     bind_request_id,
     clear_request_context,
@@ -24,6 +26,9 @@ def create_app() -> FastAPI:
     Side effects:
         - Loads settings (fails loudly if jwt_secret missing or library_path unset)
         - Configures structured logging
+        - Creates the async SQLAlchemy engine + session factory
+        - Stashes settings/engine/session_factory on app.state so routes can
+          reach them via the helpers in shelvr.api.deps
         - Registers the v1 router and request-ID middleware
     """
     settings = load_settings()
@@ -34,6 +39,13 @@ def create_app() -> FastAPI:
         version=__version__,
         description="Self-hosted ebook library server",
     )
+
+    # Database engine + session factory live on app.state so routes can access
+    # them via the dependency helpers in shelvr.api.deps.
+    engine = create_engine(settings.database_url)
+    app.state.settings = settings
+    app.state.engine = engine
+    app.state.session_factory = make_session_factory(engine)
 
     @app.middleware("http")
     async def request_id_middleware(

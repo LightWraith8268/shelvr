@@ -23,6 +23,7 @@ from shelvr.db.base import Base
 
 if TYPE_CHECKING:
     from shelvr.db.models.author import Author
+    from shelvr.db.models.format import Format
     from shelvr.db.models.series import Series
     from shelvr.db.models.tag import Tag
 
@@ -75,3 +76,6 @@ class Book(Base):
     series: Mapped[Series | None] = relationship("Series", lazy="joined")
     authors: Mapped[list[Author]] = relationship("Author", secondary=book_authors, lazy="selectin")
     tags: Mapped[list[Tag]] = relationship("Tag", secondary=book_tags, lazy="selectin")
+    formats: Mapped[list[Format]] = relationship(
+        "Format", lazy="selectin", cascade="all, delete-orphan"
+    )

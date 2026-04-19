@@ -1,3 +1,3 @@
-"""Placeholder — populated in a later kickoff day."""
+"""Services — stateless helpers used by API routes and higher-level flows."""
 
 from __future__ import annotations

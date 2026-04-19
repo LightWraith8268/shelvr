@@ -23,14 +23,24 @@ class Base(DeclarativeBase):
 
 
 def create_engine(database_url: str) -> AsyncEngine:
-    """Create an async SQLAlchemy engine with SQLite WAL mode when applicable."""
+    """Create an async SQLAlchemy engine with SQLite WAL mode when applicable.
+
+    For in-memory SQLite URLs (containing ``:memory:``), uses StaticPool and
+    disables ``check_same_thread`` so the single connection is reused across the
+    engine's lifetime — otherwise each new connection would open a fresh empty
+    in-memory database and anything we created wouldn't be visible.
+    """
     connect_args: dict[str, object] = {}
+    engine_kwargs: dict[str, object] = {"future": True}
     if database_url.startswith("sqlite"):
         # Allow connections from any thread; SQLAlchemy's pooling handles isolation.
         connect_args["check_same_thread"] = False
-    engine = create_async_engine(
+        if ":memory:" in database_url:
+            from sqlalchemy.pool import StaticPool
+
+            engine_kwargs["poolclass"] = StaticPool
+    return create_async_engine(
         database_url,
-        future=True,
         connect_args=connect_args,
+        **engine_kwargs,
     )
-    return engine
