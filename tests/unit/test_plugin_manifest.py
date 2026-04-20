@@ -165,3 +165,65 @@ api_version = "99"
 
     with pytest.raises(ApiVersionMismatchError):
         load_manifest(fut)
+
+
+def test_manifest_accepts_dotted_namespace_id(tmp_path: Path) -> None:
+    """Plugin IDs can use dots as namespace separators (e.g. 'builtin.epub')."""
+    from shelvr.plugins.manifest import load_manifest
+
+    path = tmp_path / "plugin.toml"
+    path.write_text(
+        """
+[plugin]
+id = "builtin.epub"
+name = "Namespaced"
+version = "1.0.0"
+api_version = "1"
+""",
+        encoding="utf-8",
+    )
+
+    manifest = load_manifest(path)
+    assert manifest.id == "builtin.epub"
+
+
+def test_manifest_rejects_id_starting_with_dot(tmp_path: Path) -> None:
+    """IDs cannot start with a dot."""
+    from shelvr.plugins.exceptions import ManifestError
+    from shelvr.plugins.manifest import load_manifest
+
+    path = tmp_path / "plugin.toml"
+    path.write_text(
+        """
+[plugin]
+id = ".builtin"
+name = "Bad"
+version = "1.0.0"
+api_version = "1"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ManifestError):
+        load_manifest(path)
+
+
+def test_manifest_rejects_id_with_trailing_dot(tmp_path: Path) -> None:
+    """IDs cannot end with a dot."""
+    from shelvr.plugins.exceptions import ManifestError
+    from shelvr.plugins.manifest import load_manifest
+
+    path = tmp_path / "plugin.toml"
+    path.write_text(
+        """
+[plugin]
+id = "builtin."
+name = "Bad"
+version = "1.0.0"
+api_version = "1"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ManifestError):
+        load_manifest(path)

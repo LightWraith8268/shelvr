@@ -28,7 +28,11 @@ from shelvr.plugins.exceptions import ApiVersionMismatchError, ManifestError
 
 SUPPORTED_API_VERSIONS: frozenset[str] = frozenset({"1"})
 
-_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*$")
+# Plugin IDs are lowercase ASCII identifiers, optionally with dot-separated
+# namespace segments (e.g. "builtin.epub", "shelvr.core"). Each segment must
+# start with a letter and contain only letters, digits, underscores, or
+# dashes.
+_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)*$")
 
 
 class PluginManifest(BaseModel):
