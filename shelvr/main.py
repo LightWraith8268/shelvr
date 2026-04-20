@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
@@ -47,10 +48,15 @@ def create_app() -> FastAPI:
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
 
-    # Plugin discovery + registry. Plugins from settings.plugin_dir.
-    loader = PluginLoader(settings.plugin_dir)
+    # Plugin discovery + registry — both built-ins (shipped in-tree) and any
+    # user-installed plugins under settings.plugin_dir are loaded into the
+    # same registry. User plugins can override built-ins by declaring the
+    # same id (later registrations win).
+    builtin_plugins_dir = Path(__file__).parent / "plugins" / "builtin"
     registry = PluginRegistry()
-    for loaded in loader.discover():
+    for loaded in PluginLoader(builtin_plugins_dir).discover():
+        registry.register(loaded)
+    for loaded in PluginLoader(settings.plugin_dir).discover():
         registry.register(loaded)
     app.state.plugins = registry
 
