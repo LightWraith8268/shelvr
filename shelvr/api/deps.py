@@ -8,6 +8,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from shelvr.config import Settings
+from shelvr.plugins import PluginRegistry
 from shelvr.repositories.books import BookRepository
 
 
@@ -36,3 +37,8 @@ async def get_book_repo(
 ) -> BookRepository:
     """Construct a BookRepository bound to the request's session."""
     return BookRepository(session)
+
+
+def get_plugin_registry(request: Request) -> PluginRegistry:
+    """Return the PluginRegistry stashed on app.state."""
+    return request.app.state.plugins  # type: ignore[no-any-return]

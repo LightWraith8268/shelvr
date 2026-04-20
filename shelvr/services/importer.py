@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.db.models import Book
 from shelvr.formats import get_reader_for_path
+from shelvr.plugins.registry import PluginRegistry
 from shelvr.repositories.books import BookRepository
 from shelvr.schemas.book import BookCreate
 from shelvr.services.covers import save_cover
@@ -22,6 +23,7 @@ async def import_file(
     original_filename: str,
     library_root: Path,
     session: AsyncSession,
+    plugin_registry: PluginRegistry | None = None,
 ) -> Book:
     """Import a single ebook file.
 
@@ -34,6 +36,9 @@ async def import_file(
         6. Compute target path under ``library_root`` and move the file there.
         7. Save cover + thumbnails alongside it.
         8. Create Book + Format + Authors + Tags + Identifiers via repository.
+
+    If a ``plugin_registry`` is provided, fires ``on_book_added`` after the
+    book is created. Backward-compatible: the arg is optional.
 
     Note: Metadata.extensions is captured by the format reader but not
     persisted in v1 -- will be wired up when v2's custom-columns feature lands.
@@ -102,6 +107,10 @@ async def import_file(
         file_hash=file_hash,
         source="import",
     )
+
+    if plugin_registry is not None:
+        await plugin_registry.fire_event("on_book_added", book=new_book)
+
     return new_book
 
 

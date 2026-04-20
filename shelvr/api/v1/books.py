@@ -7,10 +7,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shelvr.api.deps import get_session, get_settings
+from shelvr.api.deps import get_plugin_registry, get_session, get_settings
 from shelvr.config import Settings
 from shelvr.db.models import Book
 from shelvr.formats.base import FormatReadError, UnsupportedFormatError
+from shelvr.plugins import PluginRegistry
 from shelvr.repositories.books import BookRepository
 from shelvr.schemas.book import BookRead
 from shelvr.services.hashing import sha256_bytes
@@ -25,6 +26,7 @@ async def upload_book(
     file: UploadFile,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    plugin_registry: PluginRegistry = Depends(get_plugin_registry),
 ) -> dict[str, Any]:
     """Import a book file. Returns 201 on new book, 200 on dedup hit."""
     file_bytes = await file.read()
@@ -41,6 +43,7 @@ async def upload_book(
             original_filename=filename,
             library_root=settings.library_path,
             session=session,
+            plugin_registry=plugin_registry,
         )
     except UnsupportedFormatError as unsupported:
         raise HTTPException(
