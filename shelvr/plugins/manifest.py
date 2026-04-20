@@ -40,6 +40,7 @@ class PluginManifest(BaseModel):
     name: str
     version: str
     api_version: str
+    priority: int = 50
     hooks: dict[str, bool] = Field(default_factory=dict)
     config: dict[str, Any] = Field(default_factory=dict)
 

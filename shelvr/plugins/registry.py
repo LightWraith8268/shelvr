@@ -46,6 +46,49 @@ class PluginRegistry:
         """Call on_shutdown on every plugin."""
         await self.fire_event("on_shutdown")
 
+    async def fire_handler(self, event_name: str, /, **kwargs: Any) -> Any | None:
+        """Call ``event_name`` on plugins in priority order; return the first non-None.
+
+        Unlike fire_event (which calls every subscriber and ignores return values),
+        fire_handler is used for 'claim' hooks like on_format_import where exactly
+        one plugin should handle each call. Plugins return ``None`` to indicate
+        they don't claim this invocation; the first plugin that returns something
+        non-None wins and no further plugins are called.
+
+        Errors from individual plugins are logged and swallowed; dispatch continues
+        to the next plugin.
+        """
+        sorted_entries = sorted(
+            self._loaded.values(),
+            key=lambda entry: entry.manifest.priority,
+            reverse=True,
+        )
+        for entry in sorted_entries:
+            result = await self._invoke_with_return(entry, event_name, **kwargs)
+            if result is not None:
+                return result
+        return None
+
+    @staticmethod
+    async def _invoke_with_return(entry: LoadedPlugin, event_name: str, /, **kwargs: Any) -> Any:
+        """Like _invoke but returns the method's return value (or None on error)."""
+        method = getattr(entry.instance, event_name, None)
+        if method is None or not callable(method):
+            return None
+        try:
+            result = method(**kwargs)
+            if hasattr(result, "__await__"):
+                result = await result
+            return result
+        except Exception as exc:
+            _logger.warning(
+                "plugin_handler_failed",
+                plugin_id=entry.manifest.id,
+                event_name=event_name,
+                error=str(exc),
+            )
+            return None
+
     @staticmethod
     async def _invoke(entry: LoadedPlugin, event_name: str, /, **kwargs: Any) -> None:
         """Invoke a single plugin's hook method, swallowing and logging errors."""

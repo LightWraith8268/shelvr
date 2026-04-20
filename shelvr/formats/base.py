@@ -7,6 +7,7 @@ and an `EXTENSIONS` tuple listing the file extensions they handle.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,3 +49,16 @@ class UnsupportedFormatError(FormatReadError):
 
 class CorruptedFileError(FormatReadError):
     """Raised when a file appears to be the right format but can't be parsed."""
+
+
+@dataclass(frozen=True)
+class FormatImportResult:
+    """Return type for the on_format_import plugin hook.
+
+    Bundles everything a format-reader plugin extracts from a file in one
+    roundtrip: parsed Metadata plus the cover image bytes (or None if the
+    file has no cover).
+    """
+
+    metadata: Metadata
+    cover_bytes: bytes | None
