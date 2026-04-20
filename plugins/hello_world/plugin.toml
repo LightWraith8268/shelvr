@@ -1,0 +1,11 @@
+[plugin]
+id = "hello_world"
+name = "Hello World"
+version = "1.0.0"
+api_version = "1"
+
+[hooks]
+on_book_added = true
+
+[config]
+greeting = "hello"

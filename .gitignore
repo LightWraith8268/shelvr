@@ -55,5 +55,10 @@ shelvr.db-shm
 shelvr.db-wal
 shelvr.toml
 *.toml.local
+# User-installed plugins (third-party, not committed).
+# Reference/built-in plugins we ship are excepted below.
 /plugins/*/
 !/plugins/.gitkeep
+!/plugins/hello_world/
+!/plugins/hello_world/**
+/plugins/hello_world/**/__pycache__/
