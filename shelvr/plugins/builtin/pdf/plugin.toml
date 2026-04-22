@@ -1,0 +1,9 @@
+[plugin]
+id = "builtin.pdf"
+name = "PDF Format Reader"
+version = "1.0.0"
+api_version = "1"
+priority = 50
+
+[hooks]
+on_format_import = true
