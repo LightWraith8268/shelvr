@@ -86,7 +86,12 @@ class PluginLoader:
         if not init_path.exists():
             raise PluginLoadError(f"{plugin_dir}: missing __init__.py")
 
-        module_name = f"shelvr_plugin_{plugin_id}"
+        # Plugin IDs may contain dots (e.g. "builtin.epub") to namespace them,
+        # but a dot in a Python module name is a submodule separator and breaks
+        # importlib/sys.modules. Sanitize dots to underscores for the internal
+        # module key; the plugin's declared id remains unchanged.
+        safe_id = plugin_id.replace(".", "_")
+        module_name = f"shelvr_plugin_{safe_id}"
         spec = importlib.util.spec_from_file_location(
             module_name, init_path, submodule_search_locations=[str(plugin_dir)]
         )
