@@ -1,4 +1,4 @@
-"""Top-level import orchestrator: bytes -> library directory -> database row."""
+"""Top-level import orchestrator: bytes → library directory → database row."""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.db.models import Book
-from shelvr.formats import get_reader_for_path
+from shelvr.formats.base import (
+    FormatImportResult,
+    Metadata,
+    UnsupportedFormatError,
+)
 from shelvr.plugins.registry import PluginRegistry
 from shelvr.repositories.books import BookRepository
 from shelvr.schemas.book import BookCreate
@@ -23,32 +27,25 @@ async def import_file(
     original_filename: str,
     library_root: Path,
     session: AsyncSession,
-    plugin_registry: PluginRegistry | None = None,
+    plugin_registry: PluginRegistry,
 ) -> Book:
     """Import a single ebook file.
 
     Steps:
         1. Hash the bytes.
         2. If a format already exists with this hash, return its book (dedup).
-        3. Dispatch by extension to the right format reader.
-        4. Write the bytes to a temp file so the reader can parse from disk.
-        5. Read metadata + cover bytes.
-        6. Compute target path under ``library_root`` and move the file there.
-        7. Save cover + thumbnails alongside it.
-        8. Create Book + Format + Authors + Tags + Identifiers via repository.
+        3. Dispatch the file to the ``on_format_import`` plugin hook;
+           the first plugin to claim the extension returns a FormatImportResult.
+        4. Write the bytes to the canonical library path.
+        5. Save cover thumbnails.
+        6. Create Book + Format + Authors + Tags + Identifiers via repository.
+        7. Fire the ``on_book_added`` event hook.
 
-    If a ``plugin_registry`` is provided, fires ``on_book_added`` after the
-    book is created. Backward-compatible: the arg is optional.
-
-    Note: Metadata.extensions is captured by the format reader but not
-    persisted in v1 -- will be wired up when v2's custom-columns feature lands.
-
-    Returns:
-        The created (or pre-existing) Book.
+    Note: Metadata.extensions is captured by the format plugin but not yet
+    persisted — wires up when v2's custom-columns feature lands.
 
     Raises:
-        UnsupportedFormatError: If no reader handles the file's extension.
-        CorruptedFileError:     If the reader cannot parse the file.
+        UnsupportedFormatError: If no plugin claims the file's extension.
     """
     repo = BookRepository(session)
 
@@ -58,14 +55,17 @@ async def import_file(
         return existing_book
 
     file_extension = Path(original_filename).suffix.lower()
-    reader_module = get_reader_for_path(Path(original_filename))  # raises on unknown ext
 
     scratch_path = _write_scratch(file_bytes, file_extension)
     try:
-        metadata = reader_module.read_metadata(scratch_path)
-        cover_bytes = reader_module.extract_cover(scratch_path)
+        import_result = await _run_format_plugins(
+            plugin_registry, scratch_path, file_extension, original_filename
+        )
     finally:
         scratch_path.unlink(missing_ok=True)
+
+    metadata = import_result.metadata
+    cover_bytes = import_result.cover_bytes
 
     primary_author = metadata.authors[0] if metadata.authors else None
     target_path = compute_target_path(
@@ -85,7 +85,42 @@ async def import_file(
         )
 
     file_path_relative = str(target_path.relative_to(library_root)).replace("\\", "/")
-    book_create_data = BookCreate(
+    book_create_data = _metadata_to_book_create(metadata)
+    new_book = await repo.create_from_metadata(book_create_data, cover_path=cover_path_relative)
+    await repo.add_format(
+        book_id=new_book.id,
+        format=file_extension.lstrip("."),
+        file_path=file_path_relative,
+        file_size=len(file_bytes),
+        file_hash=file_hash,
+        source="import",
+    )
+
+    await plugin_registry.fire_event("on_book_added", book=new_book)
+    return new_book
+
+
+async def _run_format_plugins(
+    registry: PluginRegistry,
+    scratch_path: Path,
+    extension: str,
+    original_filename: str,
+) -> FormatImportResult:
+    """Dispatch via the on_format_import handler hook; raise if no plugin claims it."""
+    result = await registry.fire_handler("on_format_import", path=scratch_path, extension=extension)
+    if result is None:
+        raise UnsupportedFormatError(
+            f"No format plugin handled {original_filename!r} (extension {extension!r})"
+        )
+    if not isinstance(result, FormatImportResult):
+        raise TypeError(
+            f"on_format_import returned {type(result).__name__}, expected FormatImportResult"
+        )
+    return result
+
+
+def _metadata_to_book_create(metadata: Metadata) -> BookCreate:
+    return BookCreate(
         title=metadata.title,
         authors=metadata.authors,
         series=metadata.series,
@@ -98,20 +133,6 @@ async def import_file(
         tags=metadata.tags,
         identifiers=metadata.identifiers,
     )
-    new_book = await repo.create_from_metadata(book_create_data, cover_path=cover_path_relative)
-    await repo.add_format(
-        book_id=new_book.id,
-        format=file_extension.lstrip("."),
-        file_path=file_path_relative,
-        file_size=len(file_bytes),
-        file_hash=file_hash,
-        source="import",
-    )
-
-    if plugin_registry is not None:
-        await plugin_registry.fire_event("on_book_added", book=new_book)
-
-    return new_book
 
 
 def _write_scratch(file_bytes: bytes, file_extension: str) -> Path:
