@@ -176,6 +176,46 @@ async def test_repo_create_book_with_cover_path(session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_repo_dedupes_tags_case_insensitively(session: AsyncSession) -> None:
+    """Duplicate tag strings (including casefold-equivalent) don't trip the UNIQUE constraint."""
+    from shelvr.db.models import Tag
+    from shelvr.repositories.books import BookRepository
+    from shelvr.schemas.book import BookCreate
+
+    repo = BookRepository(session)
+    created_book = await repo.create_from_metadata(
+        BookCreate(title="PG Book", tags=["Fiction", "Fiction", "fiction", " FICTION "]),
+        cover_path=None,
+    )
+    await session.flush()
+    await session.refresh(created_book, attribute_names=["tags"])
+
+    assert len(created_book.tags) == 1
+    assert created_book.tags[0].name == "Fiction"
+
+    tag_rows = await session.execute(select(Tag))
+    assert len(tag_rows.scalars().all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_repo_dedupes_authors_case_insensitively(session: AsyncSession) -> None:
+    """Duplicate author strings collapse to one link."""
+    from shelvr.repositories.books import BookRepository
+    from shelvr.schemas.book import BookCreate
+
+    repo = BookRepository(session)
+    created_book = await repo.create_from_metadata(
+        BookCreate(title="Book", authors=["Jane Doe", "jane doe", "JANE DOE"]),
+        cover_path=None,
+    )
+    await session.flush()
+    await session.refresh(created_book, attribute_names=["authors"])
+
+    assert len(created_book.authors) == 1
+    assert created_book.authors[0].name == "Jane Doe"
+
+
+@pytest.mark.asyncio
 async def test_repo_empty_author_strings_are_skipped(session: AsyncSession) -> None:
     """Empty/whitespace author names don't create empty Author rows."""
     from shelvr.db.models import Author

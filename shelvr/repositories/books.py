@@ -49,18 +49,12 @@ class BookRepository:
             cover_path=cover_path,
         )
 
-        for author_name in metadata.authors:
-            trimmed_name = author_name.strip()
-            if not trimmed_name:
-                continue
-            author_row = await self._get_or_create_author(trimmed_name)
+        for author_name in _dedupe_preserving_order(metadata.authors):
+            author_row = await self._get_or_create_author(author_name)
             new_book.authors.append(author_row)
 
-        for raw_tag_name in metadata.tags:
-            trimmed_tag = raw_tag_name.strip()
-            if not trimmed_tag:
-                continue
-            tag_row = await self._get_or_create_tag(trimmed_tag)
+        for tag_name in _dedupe_preserving_order(metadata.tags):
+            tag_row = await self._get_or_create_tag(tag_name)
             new_book.tags.append(tag_row)
 
         self._session.add(new_book)
@@ -118,6 +112,22 @@ class BookRepository:
         self._session.add(new_tag)
         await self._session.flush()
         return new_tag
+
+
+def _dedupe_preserving_order(values: list[str]) -> list[str]:
+    """Trim, drop empties, and dedupe case-insensitively. First occurrence wins."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        trimmed = raw.strip()
+        if not trimmed:
+            continue
+        key = trimmed.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(trimmed)
+    return out
 
 
 def _compute_sort_title(title: str) -> str | None:
