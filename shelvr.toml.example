@@ -1,0 +1,51 @@
+# Shelvr configuration example.
+#
+# Copy to `shelvr.toml` in the same directory, or point SHELVR_CONFIG_FILE at
+# a different location. Any setting here can also be set via environment
+# variable by prefixing with SHELVR_ and upper-casing (SHELVR_HOST, etc.).
+#
+# Precedence: defaults < this file < environment variables.
+
+# ─── Network ────────────────────────────────────────────────────────────────
+
+# Bind address. Default is 127.0.0.1 (localhost only). Set to 0.0.0.0 to
+# expose on the LAN. LAN exposure is explicit opt-in.
+# host = "127.0.0.1"
+
+# TCP port.
+# port = 7654
+
+# ─── Library ────────────────────────────────────────────────────────────────
+
+# REQUIRED. Root directory where book files live. Shelvr writes files under
+# this path using the layout: <library_path>/<Author>/<Title (year)>/<Title>.ext
+library_path = "C:/Users/me/Documents/Shelvr Library"
+
+# ─── Database ───────────────────────────────────────────────────────────────
+
+# SQLAlchemy URL. Default keeps the DB file next to the working directory.
+# database_url = "sqlite+aiosqlite:///shelvr.db"
+
+# ─── Plugins ───────────────────────────────────────────────────────────────
+
+# Where user-installed plugins live. Built-in plugins ship with Shelvr and
+# live inside the Python package.
+# plugin_dir = "plugins"
+
+# ─── Logging ────────────────────────────────────────────────────────────────
+
+# Python log level. DEBUG | INFO | WARNING | ERROR | CRITICAL.
+# log_level = "INFO"
+
+# ─── Authentication ─────────────────────────────────────────────────────────
+
+# REQUIRED. Random secret used to sign JWT tokens. The installer generates
+# this automatically; don't check a real secret into version control.
+# Example: generate with `python -c "import secrets; print(secrets.token_urlsafe(64))"`
+jwt_secret = "replace-me-with-a-long-random-string"
+
+# Access token lifetime in minutes.
+# jwt_access_ttl_minutes = 15
+
+# Refresh token lifetime in days.
+# jwt_refresh_ttl_days = 30
