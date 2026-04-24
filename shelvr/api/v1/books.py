@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.api.deps import get_plugin_registry, get_session, get_settings
@@ -13,11 +13,30 @@ from shelvr.db.models import Book
 from shelvr.formats.base import FormatReadError, UnsupportedFormatError
 from shelvr.plugins import PluginRegistry
 from shelvr.repositories.books import BookRepository
-from shelvr.schemas.book import BookRead
+from shelvr.schemas.book import BookList, BookRead
 from shelvr.services.hashing import sha256_bytes
 from shelvr.services.importer import import_file
 
 router = APIRouter(prefix="/books", tags=["books"])
+
+
+@router.get("", response_model=BookList)
+async def list_books(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    sort: Literal["title", "added"] = Query(default="added"),
+    q: str | None = Query(default=None, min_length=1, max_length=200),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """List books with pagination, sort, and title/author search."""
+    repo = BookRepository(session)
+    books, total = await repo.list_books(limit=limit, offset=offset, sort=sort, query=q)
+    return {
+        "items": [_book_to_response_dict(b) for b in books],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("", response_model=BookRead)

@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.db.models import Author, Book, Format, Identifier, Tag
+from shelvr.db.models.book import book_authors
 from shelvr.schemas.book import BookCreate
 
 
@@ -21,6 +22,51 @@ class BookRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def list_books(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        sort: str,
+        query: str | None,
+    ) -> tuple[list[Book], int]:
+        """Return a page of books plus total match count.
+
+        sort: "title" (asc on sort_title coalesced with title) or "added" (desc on date_added).
+        query: optional case-insensitive substring match on title or author name.
+        """
+        base_statement = select(Book)
+        count_statement = select(func.count()).select_from(Book)
+
+        if query:
+            pattern = f"%{query.lower()}%"
+            author_subquery = (
+                select(book_authors.c.book_id)
+                .join(Author, Author.id == book_authors.c.author_id)
+                .where(func.lower(Author.name).like(pattern))
+            )
+            filter_condition = or_(
+                func.lower(Book.title).like(pattern),
+                Book.id.in_(author_subquery),
+            )
+            base_statement = base_statement.where(filter_condition)
+            count_statement = count_statement.where(filter_condition)
+
+        if sort == "title":
+            base_statement = base_statement.order_by(func.coalesce(Book.sort_title, Book.title))
+        else:
+            base_statement = base_statement.order_by(Book.date_added.desc(), Book.id.desc())
+
+        base_statement = base_statement.limit(limit).offset(offset)
+
+        rows_result = await self._session.execute(base_statement)
+        books = list(rows_result.scalars().all())
+
+        count_result = await self._session.execute(count_statement)
+        total = int(count_result.scalar_one())
+
+        return books, total
 
     async def get_by_hash(self, file_hash: str) -> Book | None:
         """Return the Book that owns a Format with the given file_hash, or None."""

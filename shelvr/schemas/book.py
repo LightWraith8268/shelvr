@@ -100,3 +100,12 @@ class BookRead(BaseModel):
     date_added: datetime
     date_modified: datetime
     cover_path: str | None
+
+
+class BookList(BaseModel):
+    """Paginated book list response."""
+
+    items: list[BookRead]
+    total: int
+    limit: int
+    offset: int
