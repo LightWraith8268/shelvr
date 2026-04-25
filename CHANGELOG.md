@@ -2,6 +2,11 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-25
+
+- Merge pull request #8 from LightWraith8268/claude/dev
+- feat(web): series detail page reachable from book detail
+
 ## [0.5.0] - 2026-04-25
 
 - Merge pull request #7 from LightWraith8268/claude/dev
