@@ -22,10 +22,14 @@ class PluginRegistry:
 
     def __init__(self) -> None:
         self._loaded: dict[str, LoadedPlugin] = {}
+        # Default-on. Admins flip these via the plugin admin endpoint;
+        # PluginStateRepository hydrates persisted overrides at startup.
+        self._enabled: dict[str, bool] = {}
 
     def register(self, loaded: LoadedPlugin) -> None:
         """Add a loaded plugin. Replaces any existing entry with the same id."""
         self._loaded[loaded.manifest.id] = loaded
+        self._enabled.setdefault(loaded.manifest.id, True)
 
     def get(self, plugin_id: str) -> LoadedPlugin | None:
         return self._loaded.get(plugin_id)
@@ -33,9 +37,31 @@ class PluginRegistry:
     def all(self) -> Iterator[LoadedPlugin]:
         return iter(self._loaded.values())
 
+    def is_enabled(self, plugin_id: str) -> bool:
+        """Default True for plugins that exist; False for unknown ids."""
+        if plugin_id not in self._loaded:
+            return False
+        return self._enabled.get(plugin_id, True)
+
+    def set_enabled(self, plugin_id: str, enabled: bool) -> None:
+        """Toggle a plugin's enabled flag. No-op for unknown ids."""
+        if plugin_id in self._loaded:
+            self._enabled[plugin_id] = enabled
+
+    def apply_persisted_state(self, state: dict[str, bool]) -> None:
+        """Hydrate enabled flags from storage. Unknown ids are ignored."""
+        for plugin_id, enabled in state.items():
+            if plugin_id in self._loaded:
+                self._enabled[plugin_id] = enabled
+
     async def fire_event(self, event_name: str, /, **kwargs: Any) -> None:
-        """Call ``event_name`` on every plugin that has it. Errors are logged, not raised."""
+        """Call ``event_name`` on every enabled plugin that has it.
+
+        Errors raised by a plugin are logged, not propagated.
+        """
         for entry in self._loaded.values():
+            if not self.is_enabled(entry.manifest.id):
+                continue
             await self._invoke(entry, event_name, **kwargs)
 
     async def startup(self) -> None:
@@ -64,6 +90,8 @@ class PluginRegistry:
             reverse=True,
         )
         for entry in sorted_entries:
+            if not self.is_enabled(entry.manifest.id):
+                continue
             result = await self._invoke_with_return(entry, event_name, **kwargs)
             if result is not None:
                 return result

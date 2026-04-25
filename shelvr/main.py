@@ -21,6 +21,7 @@ from shelvr.logging_config import (
     configure_logging,
 )
 from shelvr.plugins import PluginLoader, PluginRegistry
+from shelvr.repositories.plugin_state import PluginStateRepository
 from shelvr.web import mount_web
 
 
@@ -31,6 +32,12 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # Hydrate persisted enabled/disabled flags before firing on_startup
+        # so disabled plugins don't get their startup hook called.
+        async with _app.state.session_factory() as session:
+            persisted = await PluginStateRepository(session).load_all()
+        _app.state.plugins.apply_persisted_state(persisted)
+
         await _app.state.plugins.startup()
         try:
             yield
