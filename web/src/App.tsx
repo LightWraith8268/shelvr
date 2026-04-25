@@ -1,6 +1,7 @@
 import { Link, Route, Routes, useNavigate } from 'react-router-dom'
 import { Library } from './views/Library'
 import { BookDetail } from './views/BookDetail'
+import { BookEdit } from './views/BookEdit'
 import { LoginView } from './views/Login'
 import { UploadView } from './views/Upload'
 import { RequireAuth } from './auth/RequireAuth'
@@ -77,6 +78,14 @@ function App() {
             element={
               <RequireAdmin>
                 <UploadView />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/books/:bookId/edit"
+            element={
+              <RequireAdmin>
+                <BookEdit />
               </RequireAdmin>
             }
           />

@@ -63,9 +63,13 @@ class BookCreate(BaseModel):
 
 
 class BookUpdate(BaseModel):
-    """Partial update — all fields optional."""
+    """Partial update — all fields optional.
 
-    title: str | None = None
+    ``authors`` and ``tags``, when provided, replace the entire list. Pass an
+    empty list to clear them; omit the field to leave it untouched.
+    """
+
+    title: str | None = Field(default=None, min_length=1, max_length=1000)
     sort_title: str | None = None
     series: str | None = None
     series_index: float | None = None
@@ -75,6 +79,8 @@ class BookUpdate(BaseModel):
     published_date: date | None = None
     isbn: str | None = None
     rating: int | None = Field(default=None, ge=0, le=10)
+    authors: list[str] | None = None
+    tags: list[str] | None = None
 
 
 class BookRead(BaseModel):

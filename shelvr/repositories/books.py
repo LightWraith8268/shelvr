@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.db.models import Author, Book, Format, Identifier, Tag
 from shelvr.db.models.book import book_authors
-from shelvr.schemas.book import BookCreate
+from shelvr.schemas.book import BookCreate, BookUpdate
 
 
 class BookRepository:
@@ -130,6 +130,68 @@ class BookRepository:
             self._session.add(Identifier(book_id=new_book.id, scheme=scheme, value=value))
 
         return new_book
+
+    async def update_book(self, book_id: int, update: BookUpdate) -> Book | None:
+        """Apply a partial update to a book. Returns the updated Book, or None if missing.
+
+        ``authors`` and ``tags`` lists, when provided, replace the existing
+        association rows. Omitted fields are left untouched.
+        """
+        book = await self.get_book(book_id)
+        if book is None:
+            return None
+
+        update_data = update.model_dump(exclude_unset=True)
+
+        # Pop relationship fields so they don't go through setattr.
+        author_names = update_data.pop("authors", None)
+        tag_names = update_data.pop("tags", None)
+
+        if "title" in update_data and "sort_title" not in update_data:
+            update_data["sort_title"] = _compute_sort_title(update_data["title"])
+
+        for field, value in update_data.items():
+            setattr(book, field, value)
+
+        # Hydrate the relationship collections before mutating them so the
+        # subsequent .clear() doesn't trigger an implicit lazy-load.
+        if author_names is not None or tag_names is not None:
+            await self._session.refresh(book, attribute_names=["authors", "tags"])
+
+        if author_names is not None:
+            book.authors.clear()
+            for author_name in _dedupe_preserving_order(author_names):
+                author_row = await self._get_or_create_author(author_name)
+                book.authors.append(author_row)
+
+        if tag_names is not None:
+            book.tags.clear()
+            for tag_name in _dedupe_preserving_order(tag_names):
+                tag_row = await self._get_or_create_tag(tag_name)
+                book.tags.append(tag_row)
+
+        await self._session.flush()
+        # Full refresh — onupdate column (date_modified) needs reload, plus
+        # any attribute the response builder might read.
+        await self._session.refresh(book)
+        await self._session.refresh(book, attribute_names=["authors", "tags", "formats"])
+        return book
+
+    async def delete_book(self, book_id: int) -> Book | None:
+        """Delete a book row, returning the deleted ORM instance for cleanup work.
+
+        Cascades to formats and association tables via FK ``ON DELETE CASCADE``.
+        File cleanup on disk is the caller's responsibility — the repo only
+        owns the DB.
+        """
+        book = await self.get_book(book_id)
+        if book is None:
+            return None
+        # Hydrate formats while still attached so the caller can use them.
+        await self._session.refresh(book, attribute_names=["formats"])
+        await self._session.delete(book)
+        await self._session.flush()
+        return book
 
     async def add_format(
         self,

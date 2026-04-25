@@ -1,7 +1,9 @@
-import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { coverUrl, formatFileUrl, getBook } from '../api/books'
+import { deleteBook } from '../api/admin'
 import { downloadAuthedFile, useAuthedBlob } from '../api/media'
+import { useAuth } from '../auth/AuthProvider'
 import type { Format } from '../api/types'
 
 function formatBytes(bytes: number): string {
@@ -18,6 +20,10 @@ function suggestedFilename(format: Format, title: string): string {
 export function BookDetail() {
   const { bookId } = useParams<{ bookId: string }>()
   const numericId = Number(bookId)
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
 
   const { data: book, isLoading, error } = useQuery({
     queryKey: ['book', numericId],
@@ -27,6 +33,23 @@ export function BookDetail() {
 
   const remoteCover = book?.cover_path ? coverUrl(book.id, 'original') : null
   const coverObjectUrl = useAuthedBlob(remoteCover)
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteBook(numericId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['books'] })
+      queryClient.removeQueries({ queryKey: ['book', numericId] })
+      navigate('/')
+    },
+  })
+
+  function handleDelete() {
+    if (!book) return
+    const ok = window.confirm(
+      `Delete "${book.title}"? This removes the book row and its files from disk. Cannot be undone.`,
+    )
+    if (ok) deleteMutation.mutate()
+  }
 
   if (!Number.isFinite(numericId) || numericId <= 0) {
     return <p className="text-red-600">Invalid book id.</p>
@@ -70,8 +93,27 @@ export function BookDetail() {
         </div>
 
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">{book.title}</h2>
+<h2 className="text-2xl font-semibold tracking-tight">{book.title}</h2>
           {authors && <p className="mt-1 text-slate-600">{authors}</p>}
+
+          {isAdmin && (
+            <div className="mt-3 flex gap-2">
+              <Link
+                to={`/books/${book.id}/edit`}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+              >
+                Edit metadata
+              </Link>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? 'Deleting…' : 'Delete book'}
+              </button>
+            </div>
+          )}
 
           <dl className="mt-6 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
             {book.series && (

@@ -16,7 +16,7 @@ from shelvr.db.models import Book, User
 from shelvr.formats.base import FormatReadError, UnsupportedFormatError
 from shelvr.plugins import PluginRegistry
 from shelvr.repositories.books import BookRepository
-from shelvr.schemas.book import BookList, BookRead
+from shelvr.schemas.book import BookList, BookRead, BookUpdate
 from shelvr.services.hashing import sha256_bytes
 from shelvr.services.importer import import_file
 
@@ -90,6 +90,66 @@ def _is_within(candidate: Path, root: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+@router.patch("/{book_id}", response_model=BookRead)
+async def update_book(
+    book_id: int,
+    update: BookUpdate,
+    session: AsyncSession = Depends(get_session),
+    _admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Apply a partial metadata update to a book. Admin only."""
+    repo = BookRepository(session)
+    updated = await repo.update_book(book_id, update)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    await session.commit()
+    await session.refresh(updated, attribute_names=["authors", "tags", "formats"])
+    identifiers = await repo.get_identifiers(book_id)
+    return _book_to_response_dict(updated, identifiers=identifiers)
+
+
+@router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_book(
+    book_id: int,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    _admin: User = Depends(require_admin),
+) -> Response:
+    """Delete a book and remove its files from the library directory. Admin only."""
+    repo = BookRepository(session)
+    book = await repo.delete_book(book_id)
+    if book is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+
+    library_root = settings.library_path.resolve()
+    paths_to_remove: list[Path] = []
+    for book_format in book.formats:
+        candidate = (settings.library_path / book_format.file_path).resolve()
+        if _is_within(candidate, library_root) and candidate.is_file():
+            paths_to_remove.append(candidate)
+    if book.cover_path:
+        cover_candidate = (settings.library_path / book.cover_path).resolve()
+        if _is_within(cover_candidate, library_root) and cover_candidate.is_file():
+            paths_to_remove.append(cover_candidate)
+            cover_dir = cover_candidate.parent
+            for size in ("small", "medium"):
+                sized = cover_dir / f"cover-{size}.jpg"
+                if sized.is_file():
+                    paths_to_remove.append(sized)
+
+    await session.commit()
+
+    for file_path in paths_to_remove:
+        try:
+            file_path.unlink()
+        except OSError:
+            # Best-effort cleanup — DB row is already gone, file removal is
+            # a janitor task, not a correctness invariant.
+            continue
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("", response_model=BookRead)
