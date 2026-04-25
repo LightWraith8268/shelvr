@@ -205,22 +205,18 @@ async def test_device_linked_to_user(session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reading_progress_per_device(session: AsyncSession) -> None:
-    """Reading progress is keyed by (book, device) so different devices don't clobber."""
-    from shelvr.db.models import Book, Device, ReadingProgress, User
+async def test_reading_progress_per_user(session: AsyncSession) -> None:
+    """Reading progress is keyed by (book, user) — one position per user per book."""
+    from shelvr.db.models import Book, ReadingProgress, User
 
     user = User(username="alice", password_hash="hash", role="admin")
-    session.add(user)
-    await session.flush()
-
-    device = Device(user_id=user.id, name="Pixel 9", platform="android")
     book = Book(title="A Wizard of Earthsea")
-    session.add_all([device, book])
+    session.add_all([user, book])
     await session.flush()
 
     progress = ReadingProgress(
         book_id=book.id,
-        device_id=device.id,
+        user_id=user.id,
         locator='{"cfi":"epubcfi(/6/4!/4/2/2/2)"}',
         percent=0.42,
     )

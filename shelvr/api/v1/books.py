@@ -16,7 +16,9 @@ from shelvr.db.models import Book, User
 from shelvr.formats.base import FormatReadError, UnsupportedFormatError
 from shelvr.plugins import PluginRegistry
 from shelvr.repositories.books import BookRepository
+from shelvr.repositories.reading_progress import ReadingProgressRepository
 from shelvr.schemas.book import BookList, BookRead, BookUpdate
+from shelvr.schemas.reading_progress import ReadingProgressRead, ReadingProgressUpsert
 from shelvr.services.hashing import sha256_bytes
 from shelvr.services.importer import import_file
 
@@ -163,6 +165,55 @@ async def delete_book(
             continue
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{book_id}/progress", response_model=ReadingProgressRead | None)
+async def get_progress(
+    book_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> ReadingProgressRead | None:
+    """Return the current user's reading position for the book, or null if none."""
+    book_repo = BookRepository(session)
+    if await book_repo.get_book(book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    progress = await ReadingProgressRepository(session).get(book_id=book_id, user_id=user.id)
+    if progress is None:
+        return None
+    return ReadingProgressRead.model_validate(progress)
+
+
+@router.put("/{book_id}/progress", response_model=ReadingProgressRead)
+async def put_progress(
+    book_id: int,
+    body: ReadingProgressUpsert,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> ReadingProgressRead:
+    """Upsert the current user's reading position for the book."""
+    book_repo = BookRepository(session)
+    if await book_repo.get_book(book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    progress = await ReadingProgressRepository(session).upsert(
+        book_id=book_id, user_id=user.id, locator=body.locator, percent=body.percent
+    )
+    await session.commit()
+    return ReadingProgressRead.model_validate(progress)
+
+
+@router.delete("/{book_id}/progress", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_progress(
+    book_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Clear the current user's reading position. Idempotent."""
+    book_repo = BookRepository(session)
+    if await book_repo.get_book(book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    await ReadingProgressRepository(session).delete(book_id=book_id, user_id=user.id)
+    await session.commit()
+    return None
 
 
 @router.post("", response_model=BookRead)
