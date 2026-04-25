@@ -44,9 +44,7 @@ async def _seed(app: FastAPI, *, role: str = "reader", is_active: bool = True) -
 
 
 def _bearer_for(user_id: int, role: str) -> dict[str, str]:
-    token = issue_access_token(
-        user_id=user_id, role=role, secret="gating-secret", ttl_minutes=15
-    )
+    token = issue_access_token(user_id=user_id, role=role, secret="gating-secret", ttl_minutes=15)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -69,9 +67,7 @@ async def test_books_list_requires_authentication(app: FastAPI) -> None:
 async def test_books_list_rejects_garbage_token(app: FastAPI) -> None:
     await _seed(app)
     async for client in _client(app):
-        response = await client.get(
-            "/api/v1/books", headers={"Authorization": "Bearer not-a-jwt"}
-        )
+        response = await client.get("/api/v1/books", headers={"Authorization": "Bearer not-a-jwt"})
         assert response.status_code == 401
 
 
