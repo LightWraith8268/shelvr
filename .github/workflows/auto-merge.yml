@@ -46,3 +46,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr merge ${{ steps.pr.outputs.number }} --admin --merge
+
+      - name: Dispatch release workflow
+        # GITHUB_TOKEN-driven merges don't trigger downstream `push` workflows,
+        # so we explicitly kick off release.yml against main here.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --ref main
