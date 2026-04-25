@@ -21,6 +21,7 @@ from shelvr.logging_config import (
     configure_logging,
 )
 from shelvr.plugins import PluginLoader, PluginRegistry
+from shelvr.web import mount_web
 
 
 def create_app() -> FastAPI:
@@ -74,4 +75,10 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(v1_router)
+
+    # SPA mount must come last — its catch-all route would otherwise shadow
+    # the API router. No-ops when web/dist/ is missing.
+    repo_root = Path(__file__).resolve().parent.parent
+    mount_web(app, repo_root / "web" / "dist")
+
     return app
