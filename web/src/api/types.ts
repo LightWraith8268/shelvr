@@ -26,6 +26,7 @@ export interface Book {
   sort_title: string | null
   authors: Author[]
   series: string | null
+  series_id: number | null
   series_index: number | null
   description: string | null
   language: string | null

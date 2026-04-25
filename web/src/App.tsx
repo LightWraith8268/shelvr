@@ -6,6 +6,7 @@ import { LoginView } from './views/Login'
 import { UploadView } from './views/Upload'
 import { PluginsView } from './views/Plugins'
 import { AccountView } from './views/Account'
+import { SeriesDetail } from './views/SeriesDetail'
 import { RequireAuth } from './auth/RequireAuth'
 import { RequireAdmin } from './auth/RequireAdmin'
 import { useAuth } from './auth/AuthProvider'
@@ -117,6 +118,14 @@ function App() {
             element={
               <RequireAuth>
                 <AccountView />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/series/:seriesId"
+            element={
+              <RequireAuth>
+                <SeriesDetail />
               </RequireAuth>
             }
           />

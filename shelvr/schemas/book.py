@@ -93,6 +93,7 @@ class BookRead(BaseModel):
     sort_title: str | None
     authors: list[AuthorRead]
     series: str | None
+    series_id: int | None = None
     series_index: float | None
     description: str | None
     language: str | None
