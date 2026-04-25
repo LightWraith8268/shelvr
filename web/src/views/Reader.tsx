@@ -5,6 +5,7 @@ import ePub from 'epubjs'
 import type { Book as EpubBook, Rendition } from 'epubjs'
 import { formatFileUrl, getBook } from '../api/books'
 import { apiFetch } from '../api/client'
+import { getReadingProgress, putReadingProgress } from '../api/progress'
 
 export function ReaderView() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -23,19 +24,23 @@ export function ReaderView() {
   const epubFormat = book?.formats.find((format) => format.format.toLowerCase() === 'epub')
 
   useEffect(() => {
-    if (!epubFormat || !containerRef.current) return
+    if (!epubFormat || !containerRef.current || !Number.isFinite(numericId)) return
     let cancelled = false
     let bookInstance: EpubBook | null = null
+    let saveTimer: number | null = null
+    let lastSavedLocator: string | null = null
 
     setIsLoading(true)
     setError(null)
 
-    apiFetch(formatFileUrl(epubFormat.id))
-      .then(async (response) => {
+    Promise.all([
+      apiFetch(formatFileUrl(epubFormat.id)).then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return await response.arrayBuffer()
-      })
-      .then((buffer) => {
+      }),
+      getReadingProgress(numericId).catch(() => null),
+    ])
+      .then(([buffer, progress]) => {
         if (cancelled || !containerRef.current) return
         bookInstance = ePub(buffer)
         const rendition = bookInstance.renderTo(containerRef.current, {
@@ -45,7 +50,26 @@ export function ReaderView() {
           spread: 'auto',
         })
         renditionRef.current = rendition
-        return rendition.display().then(() => {
+
+        // Debounced save on relocation. Wrap so the cleanup function can
+        // detach it without recreating the listener.
+        const handleRelocated = (location: { start?: { cfi?: string; percentage?: number } }) => {
+          const cfi = location?.start?.cfi
+          const percent = location?.start?.percentage
+          if (typeof cfi !== 'string' || typeof percent !== 'number') return
+          if (cfi === lastSavedLocator) return
+          if (saveTimer !== null) window.clearTimeout(saveTimer)
+          saveTimer = window.setTimeout(() => {
+            lastSavedLocator = cfi
+            putReadingProgress(numericId, cfi, Math.max(0, Math.min(1, percent))).catch(() => {
+              // Saving is best-effort; surface nothing if the network is flaky.
+            })
+          }, 750)
+        }
+        rendition.on('relocated', handleRelocated)
+
+        const target = progress?.locator || undefined
+        return rendition.display(target).then(() => {
           if (!cancelled) setIsLoading(false)
         })
       })
@@ -58,6 +82,7 @@ export function ReaderView() {
 
     return () => {
       cancelled = true
+      if (saveTimer !== null) window.clearTimeout(saveTimer)
       if (renditionRef.current) {
         renditionRef.current.destroy()
         renditionRef.current = null
@@ -66,7 +91,7 @@ export function ReaderView() {
         bookInstance.destroy()
       }
     }
-  }, [epubFormat])
+  }, [epubFormat, numericId])
 
   // Keyboard navigation: ←/→ for prev/next page.
   useEffect(() => {
