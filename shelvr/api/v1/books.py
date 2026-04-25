@@ -29,12 +29,23 @@ async def list_books(
     offset: int = Query(default=0, ge=0),
     sort: Literal["title", "added"] = Query(default="added"),
     q: str | None = Query(default=None, min_length=1, max_length=200),
+    tag: str | None = Query(default=None, min_length=1, max_length=200),
+    author_id: int | None = Query(default=None, ge=1),
+    language: str | None = Query(default=None, min_length=1, max_length=20),
     session: AsyncSession = Depends(get_session),
     _current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """List books with pagination, sort, and title/author search."""
+    """List books with pagination, sort, search, and tag/author/language filters."""
     repo = BookRepository(session)
-    books, total = await repo.list_books(limit=limit, offset=offset, sort=sort, query=q)
+    books, total = await repo.list_books(
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        query=q,
+        tag=tag,
+        author_id=author_id,
+        language=language,
+    )
     return {
         "items": [_book_to_response_dict(b) for b in books],
         "total": total,

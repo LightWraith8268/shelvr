@@ -13,7 +13,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.db.models import Author, Book, Format, Identifier, Tag
-from shelvr.db.models.book import book_authors
+from shelvr.db.models.book import book_authors, book_tags
 from shelvr.schemas.book import BookCreate, BookUpdate
 
 
@@ -30,14 +30,20 @@ class BookRepository:
         offset: int,
         sort: str,
         query: str | None,
+        tag: str | None = None,
+        author_id: int | None = None,
+        language: str | None = None,
     ) -> tuple[list[Book], int]:
         """Return a page of books plus total match count.
 
         sort: "title" (asc on sort_title coalesced with title) or "added" (desc on date_added).
         query: optional case-insensitive substring match on title or author name.
+        tag/author_id/language: optional exact-match filters (tag and language case-insensitive).
         """
         base_statement = select(Book)
         count_statement = select(func.count()).select_from(Book)
+
+        filters = []
 
         if query:
             pattern = f"%{query.lower()}%"
@@ -46,10 +52,28 @@ class BookRepository:
                 .join(Author, Author.id == book_authors.c.author_id)
                 .where(func.lower(Author.name).like(pattern))
             )
-            filter_condition = or_(
-                func.lower(Book.title).like(pattern),
-                Book.id.in_(author_subquery),
+            filters.append(
+                or_(func.lower(Book.title).like(pattern), Book.id.in_(author_subquery))
             )
+
+        if tag:
+            tag_subquery = (
+                select(book_tags.c.book_id)
+                .join(Tag, Tag.id == book_tags.c.tag_id)
+                .where(func.lower(Tag.name) == tag.lower())
+            )
+            filters.append(Book.id.in_(tag_subquery))
+
+        if author_id is not None:
+            author_subquery_id = select(book_authors.c.book_id).where(
+                book_authors.c.author_id == author_id
+            )
+            filters.append(Book.id.in_(author_subquery_id))
+
+        if language:
+            filters.append(func.lower(Book.language) == language.lower())
+
+        for filter_condition in filters:
             base_statement = base_statement.where(filter_condition)
             count_statement = count_statement.where(filter_condition)
 
@@ -67,6 +91,44 @@ class BookRepository:
         total = int(count_result.scalar_one())
 
         return books, total
+
+    async def list_tags_with_counts(self, *, limit: int = 200) -> list[tuple[Tag, int]]:
+        """Return tags ordered by usage count desc, then alpha. Tags with zero books are excluded."""
+        statement = (
+            select(Tag, func.count(book_tags.c.book_id).label("count"))
+            .join(book_tags, Tag.id == book_tags.c.tag_id)
+            .group_by(Tag.id)
+            .order_by(func.count(book_tags.c.book_id).desc(), Tag.name)
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return [(row[0], int(row[1])) for row in result.all()]
+
+    async def list_authors_with_counts(self, *, limit: int = 200) -> list[tuple[Author, int]]:
+        """Return authors ordered by usage count desc, then alpha. Authors with zero books are excluded."""
+        statement = (
+            select(Author, func.count(book_authors.c.book_id).label("count"))
+            .join(book_authors, Author.id == book_authors.c.author_id)
+            .group_by(Author.id)
+            .order_by(
+                func.count(book_authors.c.book_id).desc(),
+                func.coalesce(Author.sort_name, Author.name),
+            )
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return [(row[0], int(row[1])) for row in result.all()]
+
+    async def list_languages_with_counts(self) -> list[tuple[str, int]]:
+        """Return non-empty book languages with their counts, ordered by count desc."""
+        statement = (
+            select(Book.language, func.count(Book.id).label("count"))
+            .where(Book.language.is_not(None))
+            .group_by(Book.language)
+            .order_by(func.count(Book.id).desc(), Book.language)
+        )
+        result = await self._session.execute(statement)
+        return [(row[0], int(row[1])) for row in result.all() if row[0]]
 
     async def get_book(self, book_id: int) -> Book | None:
         """Return a Book by id, or None."""

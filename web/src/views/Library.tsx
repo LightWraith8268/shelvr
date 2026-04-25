@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { listBooks } from '../api/books'
+import {
+  listAuthorFacets,
+  listLanguageFacets,
+  listTagFacets,
+} from '../api/facets'
 import type { Book, BookSort } from '../api/types'
 import { BookCard } from '../components/BookCard'
 
@@ -15,17 +20,48 @@ export function Library({ onBookSelect }: Props) {
   const [sort, setSort] = useState<BookSort>('added')
   const [searchInput, setSearchInput] = useState('')
   const [query, setQuery] = useState('')
+  const [tagFilter, setTagFilter] = useState<string>('')
+  const [authorFilter, setAuthorFilter] = useState<number | ''>('')
+  const [languageFilter, setLanguageFilter] = useState<string>('')
 
   const offset = page * PAGE_SIZE
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: ['books', { offset, limit: PAGE_SIZE, sort, q: query }],
-    queryFn: () => listBooks({ limit: PAGE_SIZE, offset, sort, q: query || undefined }),
+    queryKey: [
+      'books',
+      {
+        offset,
+        limit: PAGE_SIZE,
+        sort,
+        q: query,
+        tag: tagFilter,
+        authorId: authorFilter,
+        language: languageFilter,
+      },
+    ],
+    queryFn: () =>
+      listBooks({
+        limit: PAGE_SIZE,
+        offset,
+        sort,
+        q: query || undefined,
+        tag: tagFilter || undefined,
+        authorId: authorFilter === '' ? undefined : Number(authorFilter),
+        language: languageFilter || undefined,
+      }),
     placeholderData: keepPreviousData,
+  })
+
+  const tagFacets = useQuery({ queryKey: ['facets', 'tags'], queryFn: listTagFacets })
+  const authorFacets = useQuery({ queryKey: ['facets', 'authors'], queryFn: listAuthorFacets })
+  const languageFacets = useQuery({
+    queryKey: ['facets', 'languages'],
+    queryFn: listLanguageFacets,
   })
 
   const total = data?.total ?? 0
   const items = data?.items ?? []
   const lastPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1)
+  const hasActiveFilter = !!(query || tagFilter || authorFilter || languageFilter)
 
   function handleSearchSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -38,10 +74,35 @@ export function Library({ onBookSelect }: Props) {
     setPage(0)
   }
 
+  function handleTagChange(event: React.ChangeEvent<HTMLSelectElement>) {
+    setTagFilter(event.target.value)
+    setPage(0)
+  }
+
+  function handleAuthorChange(event: React.ChangeEvent<HTMLSelectElement>) {
+    const raw = event.target.value
+    setAuthorFilter(raw === '' ? '' : Number(raw))
+    setPage(0)
+  }
+
+  function handleLanguageChange(event: React.ChangeEvent<HTMLSelectElement>) {
+    setLanguageFilter(event.target.value)
+    setPage(0)
+  }
+
+  function clearFilters() {
+    setSearchInput('')
+    setQuery('')
+    setTagFilter('')
+    setAuthorFilter('')
+    setLanguageFilter('')
+    setPage(0)
+  }
+
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-end gap-3">
-        <form onSubmit={handleSearchSubmit} className="flex-1 min-w-[240px]">
+      <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_auto_auto_auto]">
+        <form onSubmit={handleSearchSubmit}>
           <label className="block text-xs font-medium text-slate-500" htmlFor="library-search">
             Search title or author
           </label>
@@ -51,24 +112,62 @@ export function Library({ onBookSelect }: Props) {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             placeholder="The Hobbit"
-            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+            className={inputClass}
           />
         </form>
+        <FacetSelect
+          id="library-tag"
+          label="Tag"
+          value={tagFilter}
+          onChange={handleTagChange}
+          options={(tagFacets.data ?? []).map((tag) => ({
+            value: tag.name,
+            label: `${tag.name} (${tag.count})`,
+          }))}
+        />
+        <FacetSelect
+          id="library-author"
+          label="Author"
+          value={authorFilter === '' ? '' : String(authorFilter)}
+          onChange={handleAuthorChange}
+          options={(authorFacets.data ?? []).map((author) => ({
+            value: String(author.id),
+            label: `${author.name} (${author.count})`,
+          }))}
+        />
+        <FacetSelect
+          id="library-language"
+          label="Language"
+          value={languageFilter}
+          onChange={handleLanguageChange}
+          options={(languageFacets.data ?? []).map((language) => ({
+            value: language.code,
+            label: `${language.code} (${language.count})`,
+          }))}
+        />
         <div>
           <label className="block text-xs font-medium text-slate-500" htmlFor="library-sort">
             Sort
           </label>
-          <select
-            id="library-sort"
-            value={sort}
-            onChange={handleSortChange}
-            className="mt-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          >
+          <select id="library-sort" value={sort} onChange={handleSortChange} className={inputClass}>
             <option value="added">Recently added</option>
             <option value="title">Title</option>
           </select>
         </div>
       </div>
+
+      {hasActiveFilter && (
+        <div className="mb-4 flex items-center gap-2 text-xs text-slate-500">
+          <span>{total} match{total === 1 ? '' : 'es'}</span>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="rounded-md border border-slate-300 bg-white px-2 py-0.5 hover:bg-slate-50"
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
 
       {error && (
         <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -80,7 +179,7 @@ export function Library({ onBookSelect }: Props) {
         <p className="text-slate-500">Loading…</p>
       ) : items.length === 0 ? (
         <div className="rounded-md border border-dashed border-slate-300 bg-white p-12 text-center text-slate-500">
-          {query ? 'No books match your search.' : 'No books yet. Upload one via POST /api/v1/books.'}
+          {hasActiveFilter ? 'No books match your filters.' : 'No books yet. Upload one to begin.'}
         </div>
       ) : (
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
@@ -118,6 +217,44 @@ export function Library({ onBookSelect }: Props) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+const inputClass =
+  'mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500'
+
+interface FacetOption {
+  value: string
+  label: string
+}
+
+function FacetSelect({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (event: React.ChangeEvent<HTMLSelectElement>) => void
+  options: FacetOption[]
+}) {
+  return (
+    <div className="min-w-[140px]">
+      <label className="block text-xs font-medium text-slate-500" htmlFor={id}>
+        {label}
+      </label>
+      <select id={id} value={value} onChange={onChange} className={inputClass}>
+        <option value="">All</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }

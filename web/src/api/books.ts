@@ -6,6 +6,9 @@ export interface ListBooksParams {
   offset?: number
   sort?: BookSort
   q?: string
+  tag?: string
+  authorId?: number
+  language?: string
 }
 
 export async function listBooks(params: ListBooksParams = {}): Promise<BookList> {
@@ -14,6 +17,9 @@ export async function listBooks(params: ListBooksParams = {}): Promise<BookList>
   if (params.offset !== undefined) search.set('offset', String(params.offset))
   if (params.sort) search.set('sort', params.sort)
   if (params.q) search.set('q', params.q)
+  if (params.tag) search.set('tag', params.tag)
+  if (params.authorId !== undefined) search.set('author_id', String(params.authorId))
+  if (params.language) search.set('language', params.language)
   const qs = search.toString()
   return apiJson<BookList>(`/api/v1/books${qs ? `?${qs}` : ''}`)
 }
