@@ -23,9 +23,7 @@ async def _setup_app(monkeypatch, tmp_path):
     async with test_app.state.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    fake_admin = User(
-        id=1, username="admin", password_hash="x", role="admin", is_active=True
-    )
+    fake_admin = User(id=1, username="admin", password_hash="x", role="admin", is_active=True)
     test_app.dependency_overrides[get_current_user] = lambda: fake_admin
     test_app.dependency_overrides[require_admin] = lambda: fake_admin
 
@@ -60,9 +58,7 @@ async def _setup_app(monkeypatch, tmp_path):
             (emma.id, [classics.id]),
         ]:
             for tag_id in tag_ids:
-                await session.execute(
-                    book_tags.insert().values(book_id=book_id, tag_id=tag_id)
-                )
+                await session.execute(book_tags.insert().values(book_id=book_id, tag_id=tag_id))
 
         await session.commit()
 
@@ -114,9 +110,7 @@ async def test_languages_facet_returns_counts(
 
 
 @pytest.mark.asyncio
-async def test_filter_books_by_tag(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_filter_books_by_tag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     test_app = await _setup_app(monkeypatch, tmp_path)
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -128,9 +122,7 @@ async def test_filter_books_by_tag(
 
 
 @pytest.mark.asyncio
-async def test_filter_books_by_author_id(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_filter_books_by_author_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     test_app = await _setup_app(monkeypatch, tmp_path)
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -146,9 +138,7 @@ async def test_filter_books_by_author_id(
 
 
 @pytest.mark.asyncio
-async def test_filter_books_by_language(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_filter_books_by_language(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     test_app = await _setup_app(monkeypatch, tmp_path)
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -158,9 +148,7 @@ async def test_filter_books_by_language(
 
 
 @pytest.mark.asyncio
-async def test_combined_filters_intersect(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_combined_filters_intersect(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """tag=satire AND language=en should match both Swift books, exclude Emma."""
     test_app = await _setup_app(monkeypatch, tmp_path)
     transport = ASGITransport(app=test_app)

@@ -52,9 +52,7 @@ class BookRepository:
                 .join(Author, Author.id == book_authors.c.author_id)
                 .where(func.lower(Author.name).like(pattern))
             )
-            filters.append(
-                or_(func.lower(Book.title).like(pattern), Book.id.in_(author_subquery))
-            )
+            filters.append(or_(func.lower(Book.title).like(pattern), Book.id.in_(author_subquery)))
 
         if tag:
             tag_subquery = (

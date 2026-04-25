@@ -97,8 +97,7 @@ async def test_opds_root_basic_auth(app: FastAPI) -> None:
         # Root navigation surfaces "All books" plus "Browse by tag" / "Browse by author".
         assert len(entries) == 3
         subsection_hrefs = [
-            entry.find(f"{ATOM_NS}link[@rel='subsection']").attrib["href"]
-            for entry in entries
+            entry.find(f"{ATOM_NS}link[@rel='subsection']").attrib["href"] for entry in entries
         ]
         assert any(href.endswith("/api/v1/opds/all") for href in subsection_hrefs)
         assert any(href.endswith("/api/v1/opds/by-tag") for href in subsection_hrefs)
@@ -175,12 +174,8 @@ async def _seed_with_facets(app: FastAPI) -> None:
                     source="test",
                 )
             )
-            await session.execute(
-                book_authors.insert().values(book_id=book.id, author_id=swift.id)
-            )
-            await session.execute(
-                book_tags.insert().values(book_id=book.id, tag_id=satire.id)
-            )
+            await session.execute(book_authors.insert().values(book_id=book.id, author_id=swift.id))
+            await session.execute(book_tags.insert().values(book_id=book.id, tag_id=satire.id))
         await session.commit()
 
 
@@ -200,9 +195,7 @@ async def test_opds_by_tag_navigation(app: FastAPI) -> None:
 async def test_opds_by_tag_acquisition_filters(app: FastAPI) -> None:
     await _seed_with_facets(app)
     async for client in _client(app):
-        response = await client.get(
-            "/api/v1/opds/by-tag/satire", auth=BasicAuth("reader", "pw")
-        )
+        response = await client.get("/api/v1/opds/by-tag/satire", auth=BasicAuth("reader", "pw"))
     assert response.status_code == 200
     assert response.headers["content-type"].startswith(OPDS_ACQUISITION)
     root = ET.fromstring(response.content)
@@ -214,13 +207,9 @@ async def test_opds_by_tag_acquisition_filters(app: FastAPI) -> None:
 async def test_opds_by_author_navigation_and_acquisition(app: FastAPI) -> None:
     await _seed_with_facets(app)
     async for client in _client(app):
-        navigation = await client.get(
-            "/api/v1/opds/by-author", auth=BasicAuth("reader", "pw")
-        )
+        navigation = await client.get("/api/v1/opds/by-author", auth=BasicAuth("reader", "pw"))
         nav_root = ET.fromstring(navigation.content)
-        author_link = nav_root.find(
-            f"{ATOM_NS}entry/{ATOM_NS}link[@rel='subsection']"
-        )
+        author_link = nav_root.find(f"{ATOM_NS}entry/{ATOM_NS}link[@rel='subsection']")
         assert author_link is not None
         author_href = author_link.attrib["href"]
         path = author_href.split("http://testserver", 1)[1]
