@@ -95,19 +95,36 @@ def _build_root(request: Request) -> ET.Element:
         self_href="/api/v1/opds",
     )
 
-    entry = ET.SubElement(feed, _atom("entry"))
-    ET.SubElement(entry, _atom("id")).text = "urn:shelvr:opds:all"
-    ET.SubElement(entry, _atom("title")).text = "All books"
-    ET.SubElement(entry, _atom("updated")).text = _now_iso()
-    ET.SubElement(
-        entry, _atom("content"), {"type": "text"}
-    ).text = "Every book in the library, newest first."
-    _add_link(
-        entry,
-        rel="subsection",
-        href=f"{base_url}/api/v1/opds/all",
-        link_type=ACQUISITION_TYPE,
-    )
+    sections: list[tuple[str, str, str, str, str]] = [
+        (
+            "urn:shelvr:opds:all",
+            "All books",
+            "Every book in the library, newest first.",
+            "/api/v1/opds/all",
+            ACQUISITION_TYPE,
+        ),
+        (
+            "urn:shelvr:opds:by-tag",
+            "Browse by tag",
+            "Tags grouped by usage.",
+            "/api/v1/opds/by-tag",
+            NAVIGATION_TYPE,
+        ),
+        (
+            "urn:shelvr:opds:by-author",
+            "Browse by author",
+            "Authors grouped by usage.",
+            "/api/v1/opds/by-author",
+            NAVIGATION_TYPE,
+        ),
+    ]
+    for entry_id, title, content, href, link_type in sections:
+        entry = ET.SubElement(feed, _atom("entry"))
+        ET.SubElement(entry, _atom("id")).text = entry_id
+        ET.SubElement(entry, _atom("title")).text = title
+        ET.SubElement(entry, _atom("updated")).text = _now_iso()
+        ET.SubElement(entry, _atom("content"), {"type": "text"}).text = content
+        _add_link(entry, rel="subsection", href=f"{base_url}{href}", link_type=link_type)
     return feed
 
 
@@ -215,4 +232,171 @@ async def opds_all(
     for book in books:
         feed.append(_book_entry(book, base_url))
 
+    return _xml_response(feed, kind="acquisition")
+
+
+def _paginated_acquisition(
+    request: Request,
+    *,
+    feed_id: str,
+    title: str,
+    self_path: str,
+    page: int,
+    total: int,
+    books: list[Book],
+) -> ET.Element:
+    """Build an acquisition feed with first/last/next/previous links."""
+    base_url = str(request.base_url).rstrip("/")
+    feed = _build_feed(
+        request=request,
+        feed_id=f"{feed_id}:p{page}",
+        title=title,
+        self_href=f"{self_path}{'&' if '?' in self_path else '?'}page={page}",
+    )
+    last_page = max(1, (total + OPDS_PAGE_SIZE - 1) // OPDS_PAGE_SIZE)
+    sep = "&" if "?" in self_path else "?"
+    if page < last_page:
+        _add_link(
+            feed,
+            rel="next",
+            href=f"{base_url}{self_path}{sep}page={page + 1}",
+            link_type=ACQUISITION_TYPE,
+        )
+    if page > 1:
+        _add_link(
+            feed,
+            rel="previous",
+            href=f"{base_url}{self_path}{sep}page={page - 1}",
+            link_type=ACQUISITION_TYPE,
+        )
+    _add_link(
+        feed,
+        rel="first",
+        href=f"{base_url}{self_path}{sep}page=1",
+        link_type=ACQUISITION_TYPE,
+    )
+    _add_link(
+        feed,
+        rel="last",
+        href=f"{base_url}{self_path}{sep}page={last_page}",
+        link_type=ACQUISITION_TYPE,
+    )
+    for book in books:
+        feed.append(_book_entry(book, base_url))
+    return feed
+
+
+@router.get("/by-tag", response_class=Response)
+async def opds_tags(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    _user: User = Depends(get_current_user),
+) -> Response:
+    """Navigation feed listing every tag with its book count."""
+    repo = BookRepository(session)
+    rows = await repo.list_tags_with_counts()
+    base_url = str(request.base_url).rstrip("/")
+    feed = _build_feed(
+        request=request,
+        feed_id="urn:shelvr:opds:by-tag",
+        title="Browse by tag",
+        self_href="/api/v1/opds/by-tag",
+    )
+    for tag, count in rows:
+        entry = ET.SubElement(feed, _atom("entry"))
+        ET.SubElement(entry, _atom("id")).text = f"urn:shelvr:tag:{tag.id}"
+        ET.SubElement(entry, _atom("title")).text = f"{tag.name} ({count})"
+        ET.SubElement(entry, _atom("updated")).text = _now_iso()
+        _add_link(
+            entry,
+            rel="subsection",
+            href=f"{base_url}/api/v1/opds/by-tag/{tag.name}",
+            link_type=ACQUISITION_TYPE,
+        )
+    return _xml_response(feed, kind="navigation")
+
+
+@router.get("/by-tag/{tag_name}", response_class=Response)
+async def opds_tag_books(
+    tag_name: str,
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    session: AsyncSession = Depends(get_session),
+    _user: User = Depends(get_current_user),
+) -> Response:
+    """Acquisition feed of every book carrying ``tag_name``."""
+    repo = BookRepository(session)
+    offset = (page - 1) * OPDS_PAGE_SIZE
+    books, total = await repo.list_books(
+        limit=OPDS_PAGE_SIZE, offset=offset, sort="added", query=None, tag=tag_name
+    )
+    feed = _paginated_acquisition(
+        request,
+        feed_id=f"urn:shelvr:opds:tag:{tag_name}",
+        title=f"Tag: {tag_name}",
+        self_path=f"/api/v1/opds/by-tag/{tag_name}",
+        page=page,
+        total=total,
+        books=books,
+    )
+    return _xml_response(feed, kind="acquisition")
+
+
+@router.get("/by-author", response_class=Response)
+async def opds_authors(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    _user: User = Depends(get_current_user),
+) -> Response:
+    """Navigation feed listing every author with their book count."""
+    repo = BookRepository(session)
+    rows = await repo.list_authors_with_counts()
+    base_url = str(request.base_url).rstrip("/")
+    feed = _build_feed(
+        request=request,
+        feed_id="urn:shelvr:opds:by-author",
+        title="Browse by author",
+        self_href="/api/v1/opds/by-author",
+    )
+    for author, count in rows:
+        entry = ET.SubElement(feed, _atom("entry"))
+        ET.SubElement(entry, _atom("id")).text = f"urn:shelvr:author:{author.id}"
+        ET.SubElement(entry, _atom("title")).text = f"{author.name} ({count})"
+        ET.SubElement(entry, _atom("updated")).text = _now_iso()
+        _add_link(
+            entry,
+            rel="subsection",
+            href=f"{base_url}/api/v1/opds/by-author/{author.id}",
+            link_type=ACQUISITION_TYPE,
+        )
+    return _xml_response(feed, kind="navigation")
+
+
+@router.get("/by-author/{author_id}", response_class=Response)
+async def opds_author_books(
+    author_id: int,
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    session: AsyncSession = Depends(get_session),
+    _user: User = Depends(get_current_user),
+) -> Response:
+    """Acquisition feed of every book by ``author_id``."""
+    repo = BookRepository(session)
+    offset = (page - 1) * OPDS_PAGE_SIZE
+    books, total = await repo.list_books(
+        limit=OPDS_PAGE_SIZE,
+        offset=offset,
+        sort="added",
+        query=None,
+        author_id=author_id,
+    )
+    feed = _paginated_acquisition(
+        request,
+        feed_id=f"urn:shelvr:opds:author:{author_id}",
+        title=f"Author #{author_id}",
+        self_path=f"/api/v1/opds/by-author/{author_id}",
+        page=page,
+        total=total,
+        books=books,
+    )
     return _xml_response(feed, kind="acquisition")

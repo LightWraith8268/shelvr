@@ -11,7 +11,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, BasicAuth
 
 from shelvr.auth.passwords import hash_password
-from shelvr.db.models import Book, Format, User
+from shelvr.db.models import Author, Book, Format, Tag, User
+from shelvr.db.models.book import book_authors, book_tags
 from shelvr.main import create_app
 
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
@@ -93,10 +94,15 @@ async def test_opds_root_basic_auth(app: FastAPI) -> None:
         title = root.find(f"{ATOM_NS}title")
         assert title is not None and title.text == "Shelvr"
         entries = root.findall(f"{ATOM_NS}entry")
-        assert len(entries) == 1
-        subsection = entries[0].find(f"{ATOM_NS}link[@rel='subsection']")
-        assert subsection is not None
-        assert subsection.attrib["href"].endswith("/api/v1/opds/all")
+        # Root navigation surfaces "All books" plus "Browse by tag" / "Browse by author".
+        assert len(entries) == 3
+        subsection_hrefs = [
+            entry.find(f"{ATOM_NS}link[@rel='subsection']").attrib["href"]
+            for entry in entries
+        ]
+        assert any(href.endswith("/api/v1/opds/all") for href in subsection_hrefs)
+        assert any(href.endswith("/api/v1/opds/by-tag") for href in subsection_hrefs)
+        assert any(href.endswith("/api/v1/opds/by-author") for href in subsection_hrefs)
 
 
 @pytest.mark.asyncio
@@ -138,6 +144,91 @@ async def test_opds_all_paginates(app: FastAPI) -> None:
         second_root = ET.fromstring(second_page.content)
         assert second_root.find(f"{ATOM_NS}link[@rel='previous']") is not None
         assert len(second_root.findall(f"{ATOM_NS}entry")) == 1
+
+
+async def _seed_with_facets(app: FastAPI) -> None:
+    """Seed two books, one tag (satire) on both, one author (Swift) on both."""
+    from shelvr.db.base import Base
+
+    engine = app.state.engine
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    async with app.state.session_factory() as session:
+        user = User(username="reader", password_hash=hash_password("pw"), role="reader")
+        swift = Author(name="Jonathan Swift", sort_name="Swift, Jonathan")
+        satire = Tag(name="satire")
+        session.add_all([user, swift, satire])
+        await session.flush()
+
+        for index in range(2):
+            book = Book(title=f"Book {index}", language="en")
+            session.add(book)
+            await session.flush()
+            session.add(
+                Format(
+                    book_id=book.id,
+                    format="epub",
+                    file_path=f"book-{index}.epub",
+                    file_size=1024,
+                    file_hash=f"hash{index}",
+                    source="test",
+                )
+            )
+            await session.execute(
+                book_authors.insert().values(book_id=book.id, author_id=swift.id)
+            )
+            await session.execute(
+                book_tags.insert().values(book_id=book.id, tag_id=satire.id)
+            )
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_opds_by_tag_navigation(app: FastAPI) -> None:
+    await _seed_with_facets(app)
+    async for client in _client(app):
+        response = await client.get("/api/v1/opds/by-tag", auth=BasicAuth("reader", "pw"))
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(OPDS_NAVIGATION)
+    root = ET.fromstring(response.content)
+    titles = [entry.find(f"{ATOM_NS}title").text for entry in root.findall(f"{ATOM_NS}entry")]
+    assert any("satire" in title for title in titles)
+
+
+@pytest.mark.asyncio
+async def test_opds_by_tag_acquisition_filters(app: FastAPI) -> None:
+    await _seed_with_facets(app)
+    async for client in _client(app):
+        response = await client.get(
+            "/api/v1/opds/by-tag/satire", auth=BasicAuth("reader", "pw")
+        )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(OPDS_ACQUISITION)
+    root = ET.fromstring(response.content)
+    entries = root.findall(f"{ATOM_NS}entry")
+    assert len(entries) == 2
+
+
+@pytest.mark.asyncio
+async def test_opds_by_author_navigation_and_acquisition(app: FastAPI) -> None:
+    await _seed_with_facets(app)
+    async for client in _client(app):
+        navigation = await client.get(
+            "/api/v1/opds/by-author", auth=BasicAuth("reader", "pw")
+        )
+        nav_root = ET.fromstring(navigation.content)
+        author_link = nav_root.find(
+            f"{ATOM_NS}entry/{ATOM_NS}link[@rel='subsection']"
+        )
+        assert author_link is not None
+        author_href = author_link.attrib["href"]
+        path = author_href.split("http://testserver", 1)[1]
+
+        books_response = await client.get(path, auth=BasicAuth("reader", "pw"))
+    assert books_response.status_code == 200
+    books_root = ET.fromstring(books_response.content)
+    assert len(books_root.findall(f"{ATOM_NS}entry")) == 2
 
 
 @pytest.mark.asyncio
