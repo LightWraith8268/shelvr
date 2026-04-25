@@ -4,6 +4,7 @@ import { BookDetail } from './views/BookDetail'
 import { BookEdit } from './views/BookEdit'
 import { LoginView } from './views/Login'
 import { UploadView } from './views/Upload'
+import { PluginsView } from './views/Plugins'
 import { RequireAuth } from './auth/RequireAuth'
 import { RequireAdmin } from './auth/RequireAdmin'
 import { useAuth } from './auth/AuthProvider'
@@ -19,12 +20,20 @@ function HeaderUser() {
   return (
     <div className="flex items-center gap-3 text-sm text-slate-600">
       {user.role === 'admin' && (
-        <Link
-          to="/upload"
-          className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
-        >
-          Upload
-        </Link>
+        <>
+          <Link
+            to="/upload"
+            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+          >
+            Upload
+          </Link>
+          <Link
+            to="/plugins"
+            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+          >
+            Plugins
+          </Link>
+        </>
       )}
       <span className="font-medium text-slate-900">{user.username}</span>
       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs uppercase tracking-wide text-slate-600">
@@ -86,6 +95,14 @@ function App() {
             element={
               <RequireAdmin>
                 <BookEdit />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/plugins"
+            element={
+              <RequireAdmin>
+                <PluginsView />
               </RequireAdmin>
             }
           />
