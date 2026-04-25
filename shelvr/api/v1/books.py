@@ -217,6 +217,7 @@ def _book_to_response_dict(
         "sort_title": book.sort_title,
         "authors": [{"id": a.id, "name": a.name, "sort_name": a.sort_name} for a in book.authors],
         "series": book.series.name if book.series is not None else None,
+        "series_id": book.series_id,
         "series_index": book.series_index,
         "description": book.description,
         "language": book.language,

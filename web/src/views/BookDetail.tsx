@@ -120,7 +120,16 @@ export function BookDetail() {
               <>
                 <dt className="text-slate-500">Series</dt>
                 <dd>
-                  {book.series}
+                  {book.series_id !== null ? (
+                    <Link
+                      to={`/series/${book.series_id}`}
+                      className="text-slate-900 hover:underline"
+                    >
+                      {book.series}
+                    </Link>
+                  ) : (
+                    book.series
+                  )}
                   {book.series_index !== null && ` #${book.series_index}`}
                 </dd>
               </>
