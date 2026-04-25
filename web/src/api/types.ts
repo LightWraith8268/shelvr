@@ -48,4 +48,4 @@ export interface BookList {
   offset: number
 }
 
-export type BookSort = 'title' | 'added'
+export type BookSort = 'title' | 'added' | 'series'

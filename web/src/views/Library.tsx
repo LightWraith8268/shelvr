@@ -4,6 +4,7 @@ import { listBooks } from '../api/books'
 import {
   listAuthorFacets,
   listLanguageFacets,
+  listSeriesFacets,
   listTagFacets,
 } from '../api/facets'
 import type { Book, BookSort } from '../api/types'
@@ -23,6 +24,7 @@ export function Library({ onBookSelect }: Props) {
   const [tagFilter, setTagFilter] = useState<string>('')
   const [authorFilter, setAuthorFilter] = useState<number | ''>('')
   const [languageFilter, setLanguageFilter] = useState<string>('')
+  const [seriesFilter, setSeriesFilter] = useState<number | ''>('')
 
   const offset = page * PAGE_SIZE
   const { data, isLoading, isFetching, error } = useQuery({
@@ -36,6 +38,7 @@ export function Library({ onBookSelect }: Props) {
         tag: tagFilter,
         authorId: authorFilter,
         language: languageFilter,
+        seriesId: seriesFilter,
       },
     ],
     queryFn: () =>
@@ -47,6 +50,7 @@ export function Library({ onBookSelect }: Props) {
         tag: tagFilter || undefined,
         authorId: authorFilter === '' ? undefined : Number(authorFilter),
         language: languageFilter || undefined,
+        seriesId: seriesFilter === '' ? undefined : Number(seriesFilter),
       }),
     placeholderData: keepPreviousData,
   })
@@ -57,11 +61,15 @@ export function Library({ onBookSelect }: Props) {
     queryKey: ['facets', 'languages'],
     queryFn: listLanguageFacets,
   })
+  const seriesFacets = useQuery({
+    queryKey: ['facets', 'series'],
+    queryFn: listSeriesFacets,
+  })
 
   const total = data?.total ?? 0
   const items = data?.items ?? []
   const lastPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1)
-  const hasActiveFilter = !!(query || tagFilter || authorFilter || languageFilter)
+  const hasActiveFilter = !!(query || tagFilter || authorFilter || languageFilter || seriesFilter)
 
   function handleSearchSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -90,12 +98,19 @@ export function Library({ onBookSelect }: Props) {
     setPage(0)
   }
 
+  function handleSeriesChange(event: React.ChangeEvent<HTMLSelectElement>) {
+    const raw = event.target.value
+    setSeriesFilter(raw === '' ? '' : Number(raw))
+    setPage(0)
+  }
+
   function clearFilters() {
     setSearchInput('')
     setQuery('')
     setTagFilter('')
     setAuthorFilter('')
     setLanguageFilter('')
+    setSeriesFilter('')
     setPage(0)
   }
 
@@ -145,6 +160,16 @@ export function Library({ onBookSelect }: Props) {
             label: `${language.code} (${language.count})`,
           }))}
         />
+        <FacetSelect
+          id="library-series"
+          label="Series"
+          value={seriesFilter === '' ? '' : String(seriesFilter)}
+          onChange={handleSeriesChange}
+          options={(seriesFacets.data ?? []).map((series) => ({
+            value: String(series.id),
+            label: `${series.name} (${series.count})`,
+          }))}
+        />
         <div>
           <label className="block text-xs font-medium text-slate-500" htmlFor="library-sort">
             Sort
@@ -152,6 +177,7 @@ export function Library({ onBookSelect }: Props) {
           <select id="library-sort" value={sort} onChange={handleSortChange} className={inputClass}>
             <option value="added">Recently added</option>
             <option value="title">Title</option>
+            <option value="series">Series</option>
           </select>
         </div>
       </div>

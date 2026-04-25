@@ -12,7 +12,7 @@ from datetime import date
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shelvr.db.models import Author, Book, Format, Identifier, Tag
+from shelvr.db.models import Author, Book, Format, Identifier, Series, Tag
 from shelvr.db.models.book import book_authors, book_tags
 from shelvr.schemas.book import BookCreate, BookUpdate
 
@@ -33,6 +33,7 @@ class BookRepository:
         tag: str | None = None,
         author_id: int | None = None,
         language: str | None = None,
+        series_id: int | None = None,
     ) -> tuple[list[Book], int]:
         """Return a page of books plus total match count.
 
@@ -71,12 +72,23 @@ class BookRepository:
         if language:
             filters.append(func.lower(Book.language) == language.lower())
 
+        if series_id is not None:
+            filters.append(Book.series_id == series_id)
+
         for filter_condition in filters:
             base_statement = base_statement.where(filter_condition)
             count_statement = count_statement.where(filter_condition)
 
         if sort == "title":
             base_statement = base_statement.order_by(func.coalesce(Book.sort_title, Book.title))
+        elif sort == "series":
+            # Group by series, then by index within. Books without a series fall to the end.
+            base_statement = base_statement.order_by(
+                Book.series_id.is_(None),
+                func.coalesce(Book.series_id, 0),
+                func.coalesce(Book.series_index, 0),
+                func.coalesce(Book.sort_title, Book.title),
+            )
         else:
             base_statement = base_statement.order_by(Book.date_added.desc(), Book.id.desc())
 
@@ -161,9 +173,14 @@ class BookRepository:
 
         The caller is responsible for flushing or committing the session.
         """
+        series_row: Series | None = None
+        if metadata.series:
+            series_row = await self._get_or_create_series(metadata.series.strip())
+
         new_book = Book(
             title=metadata.title,
             sort_title=metadata.sort_title or _compute_sort_title(metadata.title),
+            series_id=series_row.id if series_row is not None else None,
             series_index=metadata.series_index,
             description=metadata.description,
             language=metadata.language,
@@ -203,12 +220,21 @@ class BookRepository:
 
         update_data = update.model_dump(exclude_unset=True)
 
-        # Pop relationship fields so they don't go through setattr.
+        # Pop relationship/derived fields so they don't go through setattr.
         author_names = update_data.pop("authors", None)
         tag_names = update_data.pop("tags", None)
+        series_field_provided = "series" in update_data
+        series_value = update_data.pop("series", None)
 
         if "title" in update_data and "sort_title" not in update_data:
             update_data["sort_title"] = _compute_sort_title(update_data["title"])
+
+        if series_field_provided:
+            if series_value:
+                series_row = await self._get_or_create_series(series_value.strip())
+                book.series_id = series_row.id
+            else:
+                book.series_id = None
 
         for field, value in update_data.items():
             setattr(book, field, value)
@@ -298,6 +324,30 @@ class BookRepository:
         self._session.add(new_tag)
         await self._session.flush()
         return new_tag
+
+    async def _get_or_create_series(self, name: str) -> Series:
+        """Return an existing Series by name, or create one."""
+        lookup_statement = select(Series).where(Series.name == name)
+        query_result = await self._session.execute(lookup_statement)
+        existing_series = query_result.scalars().first()
+        if existing_series is not None:
+            return existing_series
+        new_series = Series(name=name, sort_name=_compute_sort_title(name) or name)
+        self._session.add(new_series)
+        await self._session.flush()
+        return new_series
+
+    async def list_series_with_counts(self, *, limit: int = 200) -> list[tuple[Series, int]]:
+        """Return series ordered by usage count desc, then alpha. Empty series excluded."""
+        statement = (
+            select(Series, func.count(Book.id).label("count"))
+            .join(Book, Book.series_id == Series.id)
+            .group_by(Series.id)
+            .order_by(func.count(Book.id).desc(), func.coalesce(Series.sort_name, Series.name))
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return [(row[0], int(row[1])) for row in result.all()]
 
 
 def _dedupe_preserving_order(values: list[str]) -> list[str]:

@@ -19,6 +19,13 @@ export interface LanguageFacet {
   count: number
 }
 
+export interface SeriesFacet {
+  id: number
+  name: string
+  sort_name: string | null
+  count: number
+}
+
 export async function listTagFacets(): Promise<TagFacet[]> {
   const body = await apiJson<{ items: TagFacet[] }>('/api/v1/tags')
   return body.items
@@ -31,5 +38,10 @@ export async function listAuthorFacets(): Promise<AuthorFacet[]> {
 
 export async function listLanguageFacets(): Promise<LanguageFacet[]> {
   const body = await apiJson<{ items: LanguageFacet[] }>('/api/v1/languages')
+  return body.items
+}
+
+export async function listSeriesFacets(): Promise<SeriesFacet[]> {
+  const body = await apiJson<{ items: SeriesFacet[] }>('/api/v1/series')
   return body.items
 }
