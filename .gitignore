@@ -62,3 +62,10 @@ shelvr.toml
 !/plugins/hello_world/
 !/plugins/hello_world/**
 /plugins/hello_world/**/__pycache__/
+
+# Web frontend: dist/ is committed (server install needs no Node toolchain).
+!/web/dist/
+!/web/dist/**
+
+# Playwright MCP scratch output from local browser smoke runs.
+.playwright-mcp/

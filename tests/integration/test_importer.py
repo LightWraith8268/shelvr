@@ -63,6 +63,36 @@ async def test_importer_creates_book_from_epub(session: AsyncSession, library_pa
 
 
 @pytest.mark.asyncio
+async def test_importer_rolls_back_files_on_db_failure(
+    session: AsyncSession, library_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the DB write raises, no orphan files are left in library_root."""
+    from shelvr.repositories.books import BookRepository
+    from shelvr.services.importer import import_file
+
+    epub_fixture = FIXTURE_DIR / "modest-proposal.epub"
+    epub_bytes = epub_fixture.read_bytes()
+    registry = _load_builtin_registry()
+
+    async def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("simulated DB failure")
+
+    monkeypatch.setattr(BookRepository, "create_from_metadata", _boom)
+
+    with pytest.raises(RuntimeError, match="simulated DB failure"):
+        await import_file(
+            file_bytes=epub_bytes,
+            original_filename="modest-proposal.epub",
+            library_root=library_path,
+            session=session,
+            plugin_registry=registry,
+        )
+
+    leftover_files = [p for p in library_path.rglob("*") if p.is_file()]  # noqa: ASYNC240
+    assert leftover_files == []
+
+
+@pytest.mark.asyncio
 async def test_importer_dedup_by_hash(session: AsyncSession, library_path: Path) -> None:
     """Uploading the same bytes twice returns the same book (idempotent)."""
     from shelvr.services.importer import import_file

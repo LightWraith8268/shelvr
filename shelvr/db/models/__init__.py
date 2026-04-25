@@ -10,6 +10,7 @@ from shelvr.db.models.identifier import Identifier
 from shelvr.db.models.job import Job
 from shelvr.db.models.plugin_data import PluginData
 from shelvr.db.models.reading_progress import ReadingProgress
+from shelvr.db.models.refresh_token import RefreshToken
 from shelvr.db.models.series import Series
 from shelvr.db.models.tag import Tag
 from shelvr.db.models.user import User
@@ -23,6 +24,7 @@ __all__ = [
     "Job",
     "PluginData",
     "ReadingProgress",
+    "RefreshToken",
     "Series",
     "Tag",
     "User",

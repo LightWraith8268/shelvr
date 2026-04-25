@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import tempfile
 from pathlib import Path
 
@@ -75,29 +76,49 @@ async def import_file(
         extension=file_extension,
     )
     target_path.parent.mkdir(parents=True, exist_ok=True)
+    written_paths: list[Path] = []
     target_path.write_bytes(file_bytes)
+    written_paths.append(target_path)
 
-    cover_path_relative: str | None = None
-    if cover_bytes:
-        saved_covers = save_cover(cover_bytes, target_path.parent)
-        cover_path_relative = str(saved_covers["original"].relative_to(library_root)).replace(
-            "\\", "/"
+    try:
+        cover_path_relative: str | None = None
+        if cover_bytes:
+            saved_covers = save_cover(cover_bytes, target_path.parent)
+            written_paths.extend(saved_covers.values())
+            cover_path_relative = str(saved_covers["original"].relative_to(library_root)).replace(
+                "\\", "/"
+            )
+
+        file_path_relative = str(target_path.relative_to(library_root)).replace("\\", "/")
+        book_create_data = _metadata_to_book_create(metadata)
+        new_book = await repo.create_from_metadata(book_create_data, cover_path=cover_path_relative)
+        await repo.add_format(
+            book_id=new_book.id,
+            format=file_extension.lstrip("."),
+            file_path=file_path_relative,
+            file_size=len(file_bytes),
+            file_hash=file_hash,
+            source="import",
         )
-
-    file_path_relative = str(target_path.relative_to(library_root)).replace("\\", "/")
-    book_create_data = _metadata_to_book_create(metadata)
-    new_book = await repo.create_from_metadata(book_create_data, cover_path=cover_path_relative)
-    await repo.add_format(
-        book_id=new_book.id,
-        format=file_extension.lstrip("."),
-        file_path=file_path_relative,
-        file_size=len(file_bytes),
-        file_hash=file_hash,
-        source="import",
-    )
+        await session.flush()
+    except Exception:
+        _rollback_written_files(written_paths, target_path.parent)
+        raise
 
     await plugin_registry.fire_event("on_book_added", book=new_book)
     return new_book
+
+
+def _rollback_written_files(paths: list[Path], book_dir: Path) -> None:
+    """Unlink any files we wrote, then prune empty parent dirs up to (but not past) library root."""
+    for path in paths:
+        with contextlib.suppress(OSError):
+            path.unlink(missing_ok=True)
+    for candidate in (book_dir, book_dir.parent):
+        try:
+            candidate.rmdir()
+        except OSError:
+            break
 
 
 async def _run_format_plugins(

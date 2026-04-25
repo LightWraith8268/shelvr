@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.db.models import Author, Book, Format, Identifier, Tag
-from shelvr.schemas.book import BookCreate
+from shelvr.db.models.book import book_authors, book_tags
+from shelvr.schemas.book import BookCreate, BookUpdate
 
 
 class BookRepository:
@@ -21,6 +22,129 @@ class BookRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def list_books(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        sort: str,
+        query: str | None,
+        tag: str | None = None,
+        author_id: int | None = None,
+        language: str | None = None,
+    ) -> tuple[list[Book], int]:
+        """Return a page of books plus total match count.
+
+        sort: "title" (asc on sort_title coalesced with title) or "added" (desc on date_added).
+        query: optional case-insensitive substring match on title or author name.
+        tag/author_id/language: optional exact-match filters (tag and language case-insensitive).
+        """
+        base_statement = select(Book)
+        count_statement = select(func.count()).select_from(Book)
+
+        filters = []
+
+        if query:
+            pattern = f"%{query.lower()}%"
+            author_subquery = (
+                select(book_authors.c.book_id)
+                .join(Author, Author.id == book_authors.c.author_id)
+                .where(func.lower(Author.name).like(pattern))
+            )
+            filters.append(or_(func.lower(Book.title).like(pattern), Book.id.in_(author_subquery)))
+
+        if tag:
+            tag_subquery = (
+                select(book_tags.c.book_id)
+                .join(Tag, Tag.id == book_tags.c.tag_id)
+                .where(func.lower(Tag.name) == tag.lower())
+            )
+            filters.append(Book.id.in_(tag_subquery))
+
+        if author_id is not None:
+            author_subquery_id = select(book_authors.c.book_id).where(
+                book_authors.c.author_id == author_id
+            )
+            filters.append(Book.id.in_(author_subquery_id))
+
+        if language:
+            filters.append(func.lower(Book.language) == language.lower())
+
+        for filter_condition in filters:
+            base_statement = base_statement.where(filter_condition)
+            count_statement = count_statement.where(filter_condition)
+
+        if sort == "title":
+            base_statement = base_statement.order_by(func.coalesce(Book.sort_title, Book.title))
+        else:
+            base_statement = base_statement.order_by(Book.date_added.desc(), Book.id.desc())
+
+        base_statement = base_statement.limit(limit).offset(offset)
+
+        rows_result = await self._session.execute(base_statement)
+        books = list(rows_result.scalars().all())
+
+        count_result = await self._session.execute(count_statement)
+        total = int(count_result.scalar_one())
+
+        return books, total
+
+    async def list_tags_with_counts(self, *, limit: int = 200) -> list[tuple[Tag, int]]:
+        """Return tags ordered by usage count desc, then alpha. Tags with zero books are excluded."""
+        statement = (
+            select(Tag, func.count(book_tags.c.book_id).label("count"))
+            .join(book_tags, Tag.id == book_tags.c.tag_id)
+            .group_by(Tag.id)
+            .order_by(func.count(book_tags.c.book_id).desc(), Tag.name)
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return [(row[0], int(row[1])) for row in result.all()]
+
+    async def list_authors_with_counts(self, *, limit: int = 200) -> list[tuple[Author, int]]:
+        """Return authors ordered by usage count desc, then alpha. Authors with zero books are excluded."""
+        statement = (
+            select(Author, func.count(book_authors.c.book_id).label("count"))
+            .join(book_authors, Author.id == book_authors.c.author_id)
+            .group_by(Author.id)
+            .order_by(
+                func.count(book_authors.c.book_id).desc(),
+                func.coalesce(Author.sort_name, Author.name),
+            )
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return [(row[0], int(row[1])) for row in result.all()]
+
+    async def list_languages_with_counts(self) -> list[tuple[str, int]]:
+        """Return non-empty book languages with their counts, ordered by count desc."""
+        statement = (
+            select(Book.language, func.count(Book.id).label("count"))
+            .where(Book.language.is_not(None))
+            .group_by(Book.language)
+            .order_by(func.count(Book.id).desc(), Book.language)
+        )
+        result = await self._session.execute(statement)
+        return [(row[0], int(row[1])) for row in result.all() if row[0]]
+
+    async def get_book(self, book_id: int) -> Book | None:
+        """Return a Book by id, or None."""
+        lookup_statement = select(Book).where(Book.id == book_id)
+        query_result = await self._session.execute(lookup_statement)
+        return query_result.scalars().first()
+
+    async def get_format(self, format_id: int) -> Format | None:
+        """Return a Format by id, or None."""
+        lookup_statement = select(Format).where(Format.id == format_id)
+        query_result = await self._session.execute(lookup_statement)
+        return query_result.scalars().first()
+
+    async def get_identifiers(self, book_id: int) -> dict[str, str]:
+        """Return scheme→value map for a book's identifiers."""
+        lookup_statement = select(Identifier).where(Identifier.book_id == book_id)
+        query_result = await self._session.execute(lookup_statement)
+        return {row.scheme: row.value for row in query_result.scalars().all()}
 
     async def get_by_hash(self, file_hash: str) -> Book | None:
         """Return the Book that owns a Format with the given file_hash, or None."""
@@ -49,18 +173,12 @@ class BookRepository:
             cover_path=cover_path,
         )
 
-        for author_name in metadata.authors:
-            trimmed_name = author_name.strip()
-            if not trimmed_name:
-                continue
-            author_row = await self._get_or_create_author(trimmed_name)
+        for author_name in _dedupe_preserving_order(metadata.authors):
+            author_row = await self._get_or_create_author(author_name)
             new_book.authors.append(author_row)
 
-        for raw_tag_name in metadata.tags:
-            trimmed_tag = raw_tag_name.strip()
-            if not trimmed_tag:
-                continue
-            tag_row = await self._get_or_create_tag(trimmed_tag)
+        for tag_name in _dedupe_preserving_order(metadata.tags):
+            tag_row = await self._get_or_create_tag(tag_name)
             new_book.tags.append(tag_row)
 
         self._session.add(new_book)
@@ -72,6 +190,68 @@ class BookRepository:
             self._session.add(Identifier(book_id=new_book.id, scheme=scheme, value=value))
 
         return new_book
+
+    async def update_book(self, book_id: int, update: BookUpdate) -> Book | None:
+        """Apply a partial update to a book. Returns the updated Book, or None if missing.
+
+        ``authors`` and ``tags`` lists, when provided, replace the existing
+        association rows. Omitted fields are left untouched.
+        """
+        book = await self.get_book(book_id)
+        if book is None:
+            return None
+
+        update_data = update.model_dump(exclude_unset=True)
+
+        # Pop relationship fields so they don't go through setattr.
+        author_names = update_data.pop("authors", None)
+        tag_names = update_data.pop("tags", None)
+
+        if "title" in update_data and "sort_title" not in update_data:
+            update_data["sort_title"] = _compute_sort_title(update_data["title"])
+
+        for field, value in update_data.items():
+            setattr(book, field, value)
+
+        # Hydrate the relationship collections before mutating them so the
+        # subsequent .clear() doesn't trigger an implicit lazy-load.
+        if author_names is not None or tag_names is not None:
+            await self._session.refresh(book, attribute_names=["authors", "tags"])
+
+        if author_names is not None:
+            book.authors.clear()
+            for author_name in _dedupe_preserving_order(author_names):
+                author_row = await self._get_or_create_author(author_name)
+                book.authors.append(author_row)
+
+        if tag_names is not None:
+            book.tags.clear()
+            for tag_name in _dedupe_preserving_order(tag_names):
+                tag_row = await self._get_or_create_tag(tag_name)
+                book.tags.append(tag_row)
+
+        await self._session.flush()
+        # Full refresh — onupdate column (date_modified) needs reload, plus
+        # any attribute the response builder might read.
+        await self._session.refresh(book)
+        await self._session.refresh(book, attribute_names=["authors", "tags", "formats"])
+        return book
+
+    async def delete_book(self, book_id: int) -> Book | None:
+        """Delete a book row, returning the deleted ORM instance for cleanup work.
+
+        Cascades to formats and association tables via FK ``ON DELETE CASCADE``.
+        File cleanup on disk is the caller's responsibility — the repo only
+        owns the DB.
+        """
+        book = await self.get_book(book_id)
+        if book is None:
+            return None
+        # Hydrate formats while still attached so the caller can use them.
+        await self._session.refresh(book, attribute_names=["formats"])
+        await self._session.delete(book)
+        await self._session.flush()
+        return book
 
     async def add_format(
         self,
@@ -118,6 +298,22 @@ class BookRepository:
         self._session.add(new_tag)
         await self._session.flush()
         return new_tag
+
+
+def _dedupe_preserving_order(values: list[str]) -> list[str]:
+    """Trim, drop empties, and dedupe case-insensitively. First occurrence wins."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        trimmed = raw.strip()
+        if not trimmed:
+            continue
+        key = trimmed.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(trimmed)
+    return out
 
 
 def _compute_sort_title(title: str) -> str | None:
