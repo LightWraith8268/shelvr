@@ -8,9 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.api.deps import get_session, get_settings
+from shelvr.auth.deps import get_current_user
 from shelvr.auth.service import AuthService
 from shelvr.auth.tokens import TokenError, decode_token
 from shelvr.config import Settings
+from shelvr.db.models import User
 from shelvr.repositories.refresh_tokens import RefreshTokenRepository
 from shelvr.repositories.users import UserRepository
 from shelvr.schemas.auth import (
@@ -18,6 +20,7 @@ from shelvr.schemas.auth import (
     LogoutRequest,
     RefreshRequest,
     TokenResponse,
+    UserRead,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -111,4 +114,7 @@ async def logout(
     return None
 
 
-# GET /auth/me lands in the next phase alongside the get_current_user dep.
+@router.get("/me", response_model=UserRead)
+async def me(user: User = Depends(get_current_user)) -> User:
+    """Return the currently authenticated user."""
+    return user

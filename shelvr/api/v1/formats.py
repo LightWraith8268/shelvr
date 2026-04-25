@@ -10,7 +10,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.api.deps import get_session, get_settings
+from shelvr.auth.deps import get_current_user
 from shelvr.config import Settings
+from shelvr.db.models import User
 from shelvr.repositories.books import BookRepository
 
 router = APIRouter(prefix="/formats", tags=["formats"])
@@ -28,6 +30,7 @@ async def download_format_file(
     format_id: int,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    _current_user: User = Depends(get_current_user),
 ) -> FileResponse:
     """Stream the underlying ebook file for a format."""
     repo = BookRepository(session)

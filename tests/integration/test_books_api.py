@@ -11,18 +11,29 @@ FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "books"
 
 
 async def _setup_app(monkeypatch, tmp_path, library_path):
-    """Create an app bound to an in-memory DB with schema created."""
+    """Create an app bound to an in-memory DB with schema created.
+
+    Auth deps are overridden to return a fake admin user so these tests
+    exercise the route logic without needing a real login flow. Auth itself
+    is covered by tests/integration/test_auth_endpoints.py.
+    """
     monkeypatch.setenv("SHELVR_JWT_SECRET", "test")
     monkeypatch.setenv("SHELVR_LIBRARY_PATH", str(library_path))
     monkeypatch.setenv("SHELVR_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
+    from shelvr.auth.deps import get_current_user, require_admin
     from shelvr.db.base import Base
+    from shelvr.db.models import User
     from shelvr.main import create_app
 
     test_app = create_app()
     engine = test_app.state.engine
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    fake_admin = User(id=1, username="test-admin", password_hash="x", role="admin", is_active=True)
+    test_app.dependency_overrides[get_current_user] = lambda: fake_admin
+    test_app.dependency_overrides[require_admin] = lambda: fake_admin
     return test_app
 
 

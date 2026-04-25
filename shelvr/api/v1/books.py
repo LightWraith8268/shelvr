@@ -10,8 +10,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.api.deps import get_plugin_registry, get_session, get_settings
+from shelvr.auth.deps import get_current_user, require_admin
 from shelvr.config import Settings
-from shelvr.db.models import Book
+from shelvr.db.models import Book, User
 from shelvr.formats.base import FormatReadError, UnsupportedFormatError
 from shelvr.plugins import PluginRegistry
 from shelvr.repositories.books import BookRepository
@@ -29,6 +30,7 @@ async def list_books(
     sort: Literal["title", "added"] = Query(default="added"),
     q: str | None = Query(default=None, min_length=1, max_length=200),
     session: AsyncSession = Depends(get_session),
+    _current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """List books with pagination, sort, and title/author search."""
     repo = BookRepository(session)
@@ -45,6 +47,7 @@ async def list_books(
 async def get_book(
     book_id: int,
     session: AsyncSession = Depends(get_session),
+    _current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Return a single book by id, including identifiers."""
     repo = BookRepository(session)
@@ -61,6 +64,7 @@ async def get_book_cover(
     size: Literal["original", "small", "medium"] = Query(default="medium"),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    _current_user: User = Depends(get_current_user),
 ) -> FileResponse:
     """Stream the book's cover JPEG. Defaults to medium thumbnail."""
     repo = BookRepository(session)
@@ -95,6 +99,7 @@ async def upload_book(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     plugin_registry: PluginRegistry = Depends(get_plugin_registry),
+    _admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     """Import a book file. Returns 201 on new book, 200 on dedup hit."""
     file_bytes = await file.read()
