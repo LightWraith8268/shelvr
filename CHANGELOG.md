@@ -2,6 +2,13 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-04-25
+
+- Merge pull request #4 from LightWraith8268/claude/dev
+- fix(ci): explicitly dispatch release after auto-merge
+- Merge pull request #3 from LightWraith8268/claude/dev
+- chore(ci): use annotated tags in release workflow and rewrite v0.2.0 changelog
+
 ## [0.2.0] - 2026-04-25
 
 First tagged release. Cumulative shipping of Days 1-13 of the build plan.
