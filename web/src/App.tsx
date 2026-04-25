@@ -5,6 +5,7 @@ import { BookEdit } from './views/BookEdit'
 import { LoginView } from './views/Login'
 import { UploadView } from './views/Upload'
 import { PluginsView } from './views/Plugins'
+import { AccountView } from './views/Account'
 import { RequireAuth } from './auth/RequireAuth'
 import { RequireAdmin } from './auth/RequireAdmin'
 import { useAuth } from './auth/AuthProvider'
@@ -35,7 +36,12 @@ function HeaderUser() {
           </Link>
         </>
       )}
-      <span className="font-medium text-slate-900">{user.username}</span>
+      <Link
+        to="/account"
+        className="font-medium text-slate-900 hover:underline"
+      >
+        {user.username}
+      </Link>
       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs uppercase tracking-wide text-slate-600">
         {user.role}
       </span>
@@ -104,6 +110,14 @@ function App() {
               <RequireAdmin>
                 <PluginsView />
               </RequireAdmin>
+            }
+          />
+          <Route
+            path="/account"
+            element={
+              <RequireAuth>
+                <AccountView />
+              </RequireAuth>
             }
           />
           <Route path="*" element={<p className="text-slate-500">Not found.</p>} />

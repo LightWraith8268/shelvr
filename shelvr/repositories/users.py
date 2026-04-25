@@ -40,3 +40,8 @@ class UserRepository:
     async def touch_last_login(self, user: User) -> None:
         user.last_login_at = datetime.now(tz=UTC)
         await self._session.flush()
+
+    async def update_password_hash(self, user: User, password_hash: str) -> None:
+        """Replace the stored password hash for ``user``."""
+        user.password_hash = password_hash
+        await self._session.flush()

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.api.deps import get_session, get_settings
 from shelvr.auth.deps import get_current_user
+from shelvr.auth.passwords import hash_password, verify_password
 from shelvr.auth.service import AuthService
 from shelvr.auth.tokens import TokenError, decode_token
 from shelvr.config import Settings
@@ -18,6 +19,7 @@ from shelvr.repositories.users import UserRepository
 from shelvr.schemas.auth import (
     LoginRequest,
     LogoutRequest,
+    PasswordChangeRequest,
     RefreshRequest,
     TokenResponse,
     UserRead,
@@ -118,3 +120,28 @@ async def logout(
 async def me(user: User = Depends(get_current_user)) -> User:
     """Return the currently authenticated user."""
     return user
+
+
+@router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: PasswordChangeRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Rotate the current user's password.
+
+    Requires the current password even though we already authenticated, so a
+    leaked access token can't silently lock the user out. All existing
+    refresh tokens for this user are revoked, forcing other sessions to
+    re-login with the new password.
+    """
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="current password is incorrect"
+        )
+    user_repo = UserRepository(session)
+    refresh_repo = RefreshTokenRepository(session)
+    await user_repo.update_password_hash(user, hash_password(body.new_password))
+    await refresh_repo.revoke_all_for_user(user.id)
+    await session.commit()
+    return None

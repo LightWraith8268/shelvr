@@ -44,3 +44,28 @@ export async function logout(refreshToken: string | null): Promise<void> {
     })
   }
 }
+
+export class PasswordChangeError extends Error {}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  const response = await apiFetch('/api/v1/auth/me/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  })
+  if (response.status === 400) {
+    throw new PasswordChangeError('Current password is incorrect.')
+  }
+  if (response.status === 422) {
+    throw new PasswordChangeError('New password must be at least 8 characters.')
+  }
+  if (!response.ok) {
+    throw new PasswordChangeError(`Password change failed (HTTP ${response.status}).`)
+  }
+}
