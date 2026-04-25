@@ -96,24 +96,34 @@ export function BookDetail() {
 <h2 className="text-2xl font-semibold tracking-tight">{book.title}</h2>
           {authors && <p className="mt-1 text-slate-600">{authors}</p>}
 
-          {isAdmin && (
-            <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
+            {book.formats.some((format) => format.format.toLowerCase() === 'epub') && (
               <Link
-                to={`/books/${book.id}/edit`}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+                to={`/books/${book.id}/read`}
+                className="rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
               >
-                Edit metadata
+                Read in browser
               </Link>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deleteMutation.isPending}
-                className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
-              >
-                {deleteMutation.isPending ? 'Deleting…' : 'Delete book'}
-              </button>
-            </div>
-          )}
+            )}
+            {isAdmin && (
+              <>
+                <Link
+                  to={`/books/${book.id}/edit`}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+                >
+                  Edit metadata
+                </Link>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleteMutation.isPending}
+                  className="rounded-md border border-red-300 bg-white px-3 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
+                >
+                  {deleteMutation.isPending ? 'Deleting…' : 'Delete book'}
+                </button>
+              </>
+            )}
+          </div>
 
           <dl className="mt-6 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
             {book.series && (
