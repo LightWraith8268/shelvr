@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react'
 import { Link, Route, Routes, useNavigate } from 'react-router-dom'
 import { Library } from './views/Library'
 import { BookDetail } from './views/BookDetail'
@@ -10,6 +11,9 @@ import { SeriesDetail } from './views/SeriesDetail'
 import { RequireAuth } from './auth/RequireAuth'
 import { RequireAdmin } from './auth/RequireAdmin'
 import { useAuth } from './auth/AuthProvider'
+
+// Lazy: epub.js is ~400 kB; only ship it when the reader route loads.
+const ReaderView = lazy(() => import('./views/Reader').then((m) => ({ default: m.ReaderView })))
 
 function LibraryRoute() {
   const navigate = useNavigate()
@@ -126,6 +130,16 @@ function App() {
             element={
               <RequireAuth>
                 <SeriesDetail />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/books/:bookId/read"
+            element={
+              <RequireAuth>
+                <Suspense fallback={<p className="text-slate-500">Loading reader…</p>}>
+                  <ReaderView />
+                </Suspense>
               </RequireAuth>
             }
           />
