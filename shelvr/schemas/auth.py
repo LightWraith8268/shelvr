@@ -45,3 +45,15 @@ class UserRead(BaseModel):
     is_active: bool
     created_at: datetime
     last_login_at: datetime | None = None
+
+
+class PasswordChangeRequest(BaseModel):
+    """Body for POST /auth/me/password.
+
+    ``current_password`` is required even though we already trust the bearer
+    token — it stops a stolen short-lived access token from silently
+    rotating the user's password and locking them out.
+    """
+
+    current_password: str = Field(..., min_length=1, max_length=500)
+    new_password: str = Field(..., min_length=8, max_length=500)
