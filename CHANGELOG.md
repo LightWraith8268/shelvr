@@ -2,6 +2,11 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-25
+
+- Merge pull request #7 from LightWraith8268/claude/dev
+- feat(books): wire series properly with filter, facet, and series sort
+
 ## [0.4.0] - 2026-04-25
 
 - Merge pull request #6 from LightWraith8268/claude/dev
