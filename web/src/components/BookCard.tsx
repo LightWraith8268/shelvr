@@ -1,6 +1,6 @@
-import { useState } from 'react'
 import type { Book } from '../api/types'
 import { coverUrl } from '../api/books'
+import { useAuthedBlob } from '../api/media'
 
 interface Props {
   book: Book
@@ -8,9 +8,10 @@ interface Props {
 }
 
 export function BookCard({ book, onClick }: Props) {
-  const [coverFailed, setCoverFailed] = useState(false)
   const authors = book.authors.map((author) => author.name).join(', ')
-  const hasCover = !!book.cover_path && !coverFailed
+  const remoteCover = book.cover_path ? coverUrl(book.id, 'medium') : null
+  const objectUrl = useAuthedBlob(remoteCover)
+  const showCover = !!book.cover_path && !!objectUrl
 
   return (
     <button
@@ -19,12 +20,11 @@ export function BookCard({ book, onClick }: Props) {
       className="group flex flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 rounded-md"
     >
       <div className="aspect-[2/3] w-full overflow-hidden rounded-md border border-slate-200 bg-slate-100 shadow-sm group-hover:shadow-md transition-shadow">
-        {hasCover ? (
+        {showCover ? (
           <img
-            src={coverUrl(book.id, 'medium')}
+            src={objectUrl ?? ''}
             alt=""
             loading="lazy"
-            onError={() => setCoverFailed(true)}
             className="h-full w-full object-cover"
           />
         ) : (

@@ -1,3 +1,4 @@
+import { apiJson } from './client'
 import type { Book, BookList, BookSort } from './types'
 
 export interface ListBooksParams {
@@ -14,15 +15,11 @@ export async function listBooks(params: ListBooksParams = {}): Promise<BookList>
   if (params.sort) search.set('sort', params.sort)
   if (params.q) search.set('q', params.q)
   const qs = search.toString()
-  const res = await fetch(`/api/v1/books${qs ? `?${qs}` : ''}`)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+  return apiJson<BookList>(`/api/v1/books${qs ? `?${qs}` : ''}`)
 }
 
 export async function getBook(id: number): Promise<Book> {
-  const res = await fetch(`/api/v1/books/${id}`)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+  return apiJson<Book>(`/api/v1/books/${id}`)
 }
 
 export function coverUrl(bookId: number, size: 'small' | 'medium' | 'original' = 'medium'): string {
