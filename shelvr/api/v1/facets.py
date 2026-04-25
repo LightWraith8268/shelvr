@@ -62,3 +62,23 @@ async def list_languages(
     repo = BookRepository(session)
     rows = await repo.list_languages_with_counts()
     return {"items": [{"code": code, "count": count} for code, count in rows]}
+
+
+@router.get("/series")
+async def list_series(
+    session: AsyncSession = Depends(get_session),
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    repo = BookRepository(session)
+    rows = await repo.list_series_with_counts()
+    return {
+        "items": [
+            {
+                "id": series.id,
+                "name": series.name,
+                "sort_name": series.sort_name,
+                "count": count,
+            }
+            for series, count in rows
+        ]
+    }

@@ -27,15 +27,16 @@ router = APIRouter(prefix="/books", tags=["books"])
 async def list_books(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    sort: Literal["title", "added"] = Query(default="added"),
+    sort: Literal["title", "added", "series"] = Query(default="added"),
     q: str | None = Query(default=None, min_length=1, max_length=200),
     tag: str | None = Query(default=None, min_length=1, max_length=200),
     author_id: int | None = Query(default=None, ge=1),
     language: str | None = Query(default=None, min_length=1, max_length=20),
+    series_id: int | None = Query(default=None, ge=1),
     session: AsyncSession = Depends(get_session),
     _current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """List books with pagination, sort, search, and tag/author/language filters."""
+    """List books with pagination, sort, search, and tag/author/language/series filters."""
     repo = BookRepository(session)
     books, total = await repo.list_books(
         limit=limit,
@@ -45,6 +46,7 @@ async def list_books(
         tag=tag,
         author_id=author_id,
         language=language,
+        series_id=series_id,
     )
     return {
         "items": [_book_to_response_dict(b) for b in books],
@@ -214,7 +216,7 @@ def _book_to_response_dict(
         "title": book.title,
         "sort_title": book.sort_title,
         "authors": [{"id": a.id, "name": a.name, "sort_name": a.sort_name} for a in book.authors],
-        "series": None,
+        "series": book.series.name if book.series is not None else None,
         "series_index": book.series_index,
         "description": book.description,
         "language": book.language,
