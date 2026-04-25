@@ -167,6 +167,117 @@ async def test_get_books_rejects_invalid_sort(
 
 
 @pytest.mark.asyncio
+async def test_get_book_detail_returns_identifiers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    """GET /api/v1/books/{id} returns the book with identifiers populated."""
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+
+    epub_fixture = FIXTURE_DIR / "modest-proposal.epub"
+    epub_bytes = epub_fixture.read_bytes()
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        upload_response = await client.post(
+            "/api/v1/books",
+            files={"file": ("modest-proposal.epub", epub_bytes, "application/epub+zip")},
+        )
+        assert upload_response.status_code in (200, 201)
+        book_id = upload_response.json()["id"]
+
+        detail_response = await client.get(f"/api/v1/books/{book_id}")
+        assert detail_response.status_code == 200
+        body = detail_response.json()
+        assert body["id"] == book_id
+        assert body["title"]
+        assert isinstance(body["identifiers"], dict)
+
+
+@pytest.mark.asyncio
+async def test_get_book_detail_404(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/v1/books/9999")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_book_cover_serves_jpeg(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    """GET /api/v1/books/{id}/cover returns the medium thumbnail by default."""
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+
+    epub_fixture = FIXTURE_DIR / "modest-proposal.epub"
+    epub_bytes = epub_fixture.read_bytes()
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        upload_response = await client.post(
+            "/api/v1/books",
+            files={"file": ("modest-proposal.epub", epub_bytes, "application/epub+zip")},
+        )
+        book_id = upload_response.json()["id"]
+
+        cover_response = await client.get(f"/api/v1/books/{book_id}/cover")
+        assert cover_response.status_code == 200
+        assert cover_response.headers["content-type"] == "image/jpeg"
+        assert cover_response.content[:2] == b"\xff\xd8"  # JPEG SOI
+
+        original_response = await client.get(f"/api/v1/books/{book_id}/cover?size=original")
+        assert original_response.status_code == 200
+
+        small_response = await client.get(f"/api/v1/books/{book_id}/cover?size=small")
+        assert small_response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_get_book_cover_404_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/v1/books/9999/cover")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_download_format_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    """GET /api/v1/formats/{id}/file streams the underlying ebook bytes."""
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+
+    epub_fixture = FIXTURE_DIR / "modest-proposal.epub"
+    epub_bytes = epub_fixture.read_bytes()
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        upload_response = await client.post(
+            "/api/v1/books",
+            files={"file": ("modest-proposal.epub", epub_bytes, "application/epub+zip")},
+        )
+        format_id = upload_response.json()["formats"][0]["id"]
+
+        download_response = await client.get(f"/api/v1/formats/{format_id}/file")
+        assert download_response.status_code == 200
+        assert download_response.headers["content-type"] == "application/epub+zip"
+        assert download_response.content == epub_bytes
+
+
+@pytest.mark.asyncio
+async def test_download_format_file_404(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/v1/formats/9999/file")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_post_books_rejects_unknown_extension(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
 ) -> None:

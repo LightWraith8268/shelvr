@@ -1,10 +1,12 @@
-"""POST /api/v1/books — multipart file upload to import a book."""
+"""Book endpoints: list, detail, upload, cover."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.api.deps import get_plugin_registry, get_session, get_settings
@@ -37,6 +39,53 @@ async def list_books(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get("/{book_id}", response_model=BookRead)
+async def get_book(
+    book_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Return a single book by id, including identifiers."""
+    repo = BookRepository(session)
+    book = await repo.get_book(book_id)
+    if book is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    identifiers = await repo.get_identifiers(book_id)
+    return _book_to_response_dict(book, identifiers=identifiers)
+
+
+@router.get("/{book_id}/cover")
+async def get_book_cover(
+    book_id: int,
+    size: Literal["original", "small", "medium"] = Query(default="medium"),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> FileResponse:
+    """Stream the book's cover JPEG. Defaults to medium thumbnail."""
+    repo = BookRepository(session)
+    book = await repo.get_book(book_id)
+    if book is None or not book.cover_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="cover not found")
+
+    cover_relative = Path(book.cover_path)
+    if size != "original":
+        cover_relative = cover_relative.with_name(f"cover-{size}.jpg")
+
+    cover_absolute = (settings.library_path / cover_relative).resolve()
+    library_root = settings.library_path.resolve()
+    if not _is_within(cover_absolute, library_root) or not cover_absolute.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="cover not found")
+
+    return FileResponse(cover_absolute, media_type="image/jpeg")
+
+
+def _is_within(candidate: Path, root: Path) -> bool:
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 @router.post("", response_model=BookRead)
@@ -80,13 +129,10 @@ async def upload_book(
     return _book_to_response_dict(imported_book)
 
 
-def _book_to_response_dict(book: Book) -> dict[str, Any]:
-    """Build a BookRead-compatible dict from a Book ORM instance.
-
-    v1 deliberately does not surface the Identifier rows as a map — identifiers
-    are stored but the response body keeps them empty. We'll wire up the proper
-    response mapping when we add the GET /books/{id} endpoint.
-    """
+def _book_to_response_dict(
+    book: Book, *, identifiers: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """Build a BookRead-compatible dict from a Book ORM instance."""
     return {
         "id": book.id,
         "title": book.title,
@@ -101,7 +147,7 @@ def _book_to_response_dict(book: Book) -> dict[str, Any]:
         "isbn": book.isbn,
         "rating": book.rating,
         "tags": [{"id": t.id, "name": t.name, "color": t.color} for t in book.tags],
-        "identifiers": {},
+        "identifiers": identifiers or {},
         "formats": [
             {
                 "id": f.id,

@@ -68,6 +68,24 @@ class BookRepository:
 
         return books, total
 
+    async def get_book(self, book_id: int) -> Book | None:
+        """Return a Book by id, or None."""
+        lookup_statement = select(Book).where(Book.id == book_id)
+        query_result = await self._session.execute(lookup_statement)
+        return query_result.scalars().first()
+
+    async def get_format(self, format_id: int) -> Format | None:
+        """Return a Format by id, or None."""
+        lookup_statement = select(Format).where(Format.id == format_id)
+        query_result = await self._session.execute(lookup_statement)
+        return query_result.scalars().first()
+
+    async def get_identifiers(self, book_id: int) -> dict[str, str]:
+        """Return scheme→value map for a book's identifiers."""
+        lookup_statement = select(Identifier).where(Identifier.book_id == book_id)
+        query_result = await self._session.execute(lookup_statement)
+        return {row.scheme: row.value for row in query_result.scalars().all()}
+
     async def get_by_hash(self, file_hash: str) -> Book | None:
         """Return the Book that owns a Format with the given file_hash, or None."""
         lookup_statement = (
