@@ -1,7 +1,9 @@
 name: Auto-merge claude/dev to main
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [claude/dev]
   workflow_dispatch:
 
@@ -13,18 +15,11 @@ permissions:
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Wait for CI to finish
-        uses: lewagon/wait-on-check-action@v1.3.4
-        with:
-          ref: ${{ github.sha }}
-          running-workflow-name: Auto-merge claude/dev to main
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 20
 
       - name: Open PR (or reuse existing)
         id: pr
