@@ -2,6 +2,11 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-25
+
+- Merge pull request #5 from LightWraith8268/claude/dev
+- feat(plugins): admin enable/disable endpoints with persisted state
+
 ## [0.2.1] - 2026-04-25
 
 - Merge pull request #4 from LightWraith8268/claude/dev
