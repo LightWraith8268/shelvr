@@ -116,3 +116,16 @@ class BookList(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class BulkDeleteRequest(BaseModel):
+    """Body for POST /api/v1/books/bulk-delete."""
+
+    ids: list[int] = Field(..., min_length=1, max_length=500)
+
+
+class BulkDeleteResponse(BaseModel):
+    """Result of a bulk delete: which ids actually went through."""
+
+    deleted: list[int]
+    not_found: list[int]

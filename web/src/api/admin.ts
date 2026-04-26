@@ -28,3 +28,16 @@ export async function deleteBook(bookId: number): Promise<void> {
   const response = await apiFetch(`/api/v1/books/${bookId}`, { method: 'DELETE' })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
 }
+
+export interface BulkDeleteResult {
+  deleted: number[]
+  not_found: number[]
+}
+
+export async function bulkDeleteBooks(ids: number[]): Promise<BulkDeleteResult> {
+  return apiJson<BulkDeleteResult>('/api/v1/books/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+}
