@@ -51,3 +51,14 @@ class ReadingProgressRepository:
         statement = select(ReadingProgress).where(ReadingProgress.user_id == user_id)
         result = await self._session.execute(statement)
         return list(result.scalars().all())
+
+    async def list_recent_for_user(
+        self, *, user_id: int, limit: int = 12, exclude_finished: bool = True
+    ) -> list[ReadingProgress]:
+        """Return the user's most-recently-touched in-progress rows."""
+        statement = select(ReadingProgress).where(ReadingProgress.user_id == user_id)
+        if exclude_finished:
+            statement = statement.where(ReadingProgress.percent < 1.0)
+        statement = statement.order_by(ReadingProgress.updated_at.desc()).limit(limit)
+        result = await self._session.execute(statement)
+        return list(result.scalars().all())

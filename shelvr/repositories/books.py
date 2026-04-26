@@ -12,7 +12,7 @@ from datetime import date
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shelvr.db.models import Author, Book, Format, Identifier, Series, Tag
+from shelvr.db.models import Author, Book, Format, Identifier, ReadingProgress, Series, Tag
 from shelvr.db.models.book import book_authors, book_tags
 from shelvr.schemas.book import BookCreate, BookUpdate
 
@@ -128,6 +128,18 @@ class BookRepository:
         )
         result = await self._session.execute(statement)
         return [(row[0], int(row[1])) for row in result.all()]
+
+    async def list_recent_progress_books(self, *, user_id: int, limit: int = 12) -> list[Book]:
+        """Return books the user has touched recently (and not finished), newest progress first."""
+        statement = (
+            select(Book)
+            .join(ReadingProgress, ReadingProgress.book_id == Book.id)
+            .where(ReadingProgress.user_id == user_id, ReadingProgress.percent < 1.0)
+            .order_by(ReadingProgress.updated_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return list(result.scalars().all())
 
     async def list_languages_with_counts(self) -> list[tuple[str, int]]:
         """Return non-empty book languages with their counts, ordered by count desc."""

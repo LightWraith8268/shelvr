@@ -124,6 +124,43 @@ async def me(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+@router.get("/me/recent-books")
+async def my_recent_books(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict[str, list[dict[str, Any]]]:
+    """Return up to 12 books the current user is in the middle of, newest first.
+
+    Powers a "Continue reading" row on the Library home. Finished books
+    (percent >= 1.0) are excluded.
+    """
+    from shelvr.repositories.books import BookRepository
+
+    book_repo = BookRepository(session)
+    books = await book_repo.list_recent_progress_books(user_id=user.id)
+    progress_rows = await ReadingProgressRepository(session).list_for_user(user_id=user.id)
+    progress_by_book = {row.book_id: row for row in progress_rows}
+    return {
+        "items": [
+            {
+                "id": book.id,
+                "title": book.title,
+                "authors": [
+                    {"id": author.id, "name": author.name, "sort_name": author.sort_name}
+                    for author in book.authors
+                ],
+                "cover_path": book.cover_path,
+                "percent": (
+                    progress_by_book[book.id].percent
+                    if book.id in progress_by_book
+                    else 0.0
+                ),
+            }
+            for book in books
+        ]
+    }
+
+
 @router.get("/me/progress")
 async def my_progress(
     session: AsyncSession = Depends(get_session),
