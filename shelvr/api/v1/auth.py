@@ -151,9 +151,7 @@ async def my_recent_books(
                 ],
                 "cover_path": book.cover_path,
                 "percent": (
-                    progress_by_book[book.id].percent
-                    if book.id in progress_by_book
-                    else 0.0
+                    progress_by_book[book.id].percent if book.id in progress_by_book else 0.0
                 ),
             }
             for book in books

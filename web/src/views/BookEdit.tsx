@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getBook } from '../api/books'
-import { updateBook } from '../api/admin'
+import { coverUrl, getBook } from '../api/books'
+import { replaceBookCover, updateBook } from '../api/admin'
+import { useAuthedBlob } from '../api/media'
 import type { BookUpdate } from '../api/admin'
 
 interface FormState {
@@ -96,6 +97,34 @@ export function BookEdit() {
     },
   })
 
+  const coverFileRef = useRef<HTMLInputElement>(null)
+  const [coverError, setCoverError] = useState<string | null>(null)
+  const [coverCacheBuster, setCoverCacheBuster] = useState(0)
+
+  const coverPreviewUrl = useAuthedBlob(
+    book?.cover_path ? `${coverUrl(book.id, 'medium')}&_=${coverCacheBuster}` : null,
+  )
+
+  const coverMutation = useMutation({
+    mutationFn: (file: File) => replaceBookCover(numericId, file),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['book', numericId], updated)
+      queryClient.invalidateQueries({ queryKey: ['books'] })
+      // Bust the blob cache so the new cover renders without a hard reload.
+      setCoverCacheBuster((current) => current + 1)
+      setCoverError(null)
+    },
+    onError: (err) => {
+      setCoverError(err instanceof Error ? err.message : 'Cover replace failed.')
+    },
+  })
+
+  function handleCoverPick(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (file) coverMutation.mutate(file)
+    if (coverFileRef.current) coverFileRef.current.value = ''
+  }
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
     mutation.mutate(buildPayload(form))
@@ -119,6 +148,44 @@ export function BookEdit() {
         ← Back to book
       </Link>
       <h2 className="mt-2 text-xl font-semibold tracking-tight">Edit metadata</h2>
+
+      <section className="mt-4 flex items-start gap-4 rounded-md border border-slate-200 bg-white p-3">
+        <div className="aspect-[2/3] w-24 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100">
+          {coverPreviewUrl ? (
+            <img src={coverPreviewUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] text-slate-500">
+              No cover
+            </div>
+          )}
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-slate-900">Cover image</p>
+          <p className="text-xs text-slate-500">
+            JPEG, PNG, WebP, GIF, or AVIF. The server regenerates small + medium thumbnails.
+          </p>
+          <input
+            ref={coverFileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+            onChange={handleCoverPick}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => coverFileRef.current?.click()}
+            disabled={coverMutation.isPending}
+            className="mt-2 rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+          >
+            {coverMutation.isPending ? 'Uploading…' : 'Replace cover'}
+          </button>
+          {coverError && (
+            <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
+              {coverError}
+            </p>
+          )}
+        </div>
+      </section>
 
       <form onSubmit={handleSubmit} className="mt-4 space-y-4">
         <Field label="Title" required>

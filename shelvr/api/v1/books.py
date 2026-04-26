@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
+from PIL import UnidentifiedImageError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shelvr.api.deps import get_plugin_registry, get_session, get_settings
@@ -27,6 +28,7 @@ from shelvr.schemas.book import (
     BulkTagResponse,
 )
 from shelvr.schemas.reading_progress import ReadingProgressRead, ReadingProgressUpsert
+from shelvr.services.covers import save_cover
 from shelvr.services.hashing import sha256_bytes
 from shelvr.services.importer import import_file
 
@@ -113,6 +115,74 @@ def _is_within(candidate: Path, root: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+_ACCEPTED_COVER_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/avif",
+}
+
+
+@router.put("/{book_id}/cover", response_model=BookRead)
+async def replace_book_cover(
+    book_id: int,
+    file: UploadFile,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    _admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Replace a book's cover image and regenerate the sized thumbnails. Admin only."""
+    if file.content_type and file.content_type not in _ACCEPTED_COVER_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"unsupported cover type: {file.content_type}",
+        )
+
+    repo = BookRepository(session)
+    book = await repo.get_book(book_id)
+    if book is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+
+    await session.refresh(book, attribute_names=["formats"])
+
+    library_root = settings.library_path.resolve()
+    if book.cover_path:
+        dest_dir = (settings.library_path / book.cover_path).resolve().parent
+    elif book.formats:
+        dest_dir = (settings.library_path / book.formats[0].file_path).resolve().parent
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="book has no formats — cannot derive a destination directory",
+        )
+
+    if not _is_within(dest_dir, library_root):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="resolved cover directory escaped the library root",
+        )
+
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="cover file is empty")
+
+    try:
+        saved = save_cover(image_bytes, dest_dir)
+    except UnidentifiedImageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="not a valid image"
+        ) from exc
+
+    cover_relative = str(saved["original"].relative_to(library_root)).replace("\\", "/")
+    book.cover_path = cover_relative
+    await session.commit()
+    await session.refresh(book)
+    await session.refresh(book, attribute_names=["authors", "tags", "formats"])
+    identifiers = await repo.get_identifiers(book_id)
+    return _book_to_response_dict(book, identifiers=identifiers)
 
 
 @router.patch("/{book_id}", response_model=BookRead)
