@@ -263,6 +263,55 @@ class BookRepository:
         await self._session.refresh(book, attribute_names=["authors", "tags", "formats"])
         return book
 
+    async def bulk_tag(
+        self,
+        *,
+        book_ids: list[int],
+        add: list[str],
+        remove: list[str],
+    ) -> tuple[list[int], list[int]]:
+        """Apply add/remove tag deltas to a batch of books.
+
+        Returns ``(updated_ids, not_found_ids)``. ``add`` and ``remove`` are
+        deduped case-insensitively before processing. Tags in ``add`` are
+        upserted via :meth:`_get_or_create_tag`; tags in ``remove`` are
+        matched case-insensitively against the book's existing tags.
+        """
+        cleaned_add = _dedupe_preserving_order(add)
+        cleaned_remove = {name.casefold() for name in remove if name.strip()}
+        updated: list[int] = []
+        not_found: list[int] = []
+
+        # Resolve add-tag rows once so we don't re-query per book.
+        add_rows: list[Tag] = []
+        for tag_name in cleaned_add:
+            add_rows.append(await self._get_or_create_tag(tag_name))
+
+        for book_id in dict.fromkeys(book_ids):
+            book = await self.get_book(book_id)
+            if book is None:
+                not_found.append(book_id)
+                continue
+
+            await self._session.refresh(book, attribute_names=["tags"])
+            existing_keys = {tag.name.casefold() for tag in book.tags}
+
+            if cleaned_remove:
+                book.tags[:] = [
+                    tag for tag in book.tags if tag.name.casefold() not in cleaned_remove
+                ]
+
+            for tag_row in add_rows:
+                if tag_row.name.casefold() in existing_keys:
+                    continue
+                book.tags.append(tag_row)
+                existing_keys.add(tag_row.name.casefold())
+
+            updated.append(book_id)
+
+        await self._session.flush()
+        return updated, not_found
+
     async def delete_book(self, book_id: int) -> Book | None:
         """Delete a book row, returning the deleted ORM instance for cleanup work.
 

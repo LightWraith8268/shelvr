@@ -129,3 +129,22 @@ class BulkDeleteResponse(BaseModel):
 
     deleted: list[int]
     not_found: list[int]
+
+
+class BulkTagRequest(BaseModel):
+    """Body for POST /api/v1/books/bulk-tag.
+
+    ``add`` and ``remove`` are tag-name lists. Both default to empty so the
+    caller can do add-only or remove-only.
+    """
+
+    ids: list[int] = Field(..., min_length=1, max_length=500)
+    add: list[str] = Field(default_factory=list, max_length=200)
+    remove: list[str] = Field(default_factory=list, max_length=200)
+
+
+class BulkTagResponse(BaseModel):
+    """Result of a bulk tag: which book ids were touched and which were missing."""
+
+    updated: list[int]
+    not_found: list[int]

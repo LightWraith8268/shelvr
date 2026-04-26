@@ -216,6 +216,74 @@ async def test_bulk_delete_rejects_empty_ids(
 
 
 @pytest.mark.asyncio
+async def test_bulk_tag_adds_and_removes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        book_id = await _upload(client)
+        # Seed a known starting tag set.
+        await client.patch(
+            f"/api/v1/books/{book_id}",
+            json={"tags": ["satire", "classics"]},
+        )
+
+        response = await client.post(
+            "/api/v1/books/bulk-tag",
+            json={"ids": [book_id], "add": ["fiction"], "remove": ["satire"]},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"updated": [book_id], "not_found": []}
+
+        detail = await client.get(f"/api/v1/books/{book_id}")
+        tags = sorted(tag["name"] for tag in detail.json()["tags"])
+        assert tags == ["classics", "fiction"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_tag_dedupes_and_skips_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        book_id = await _upload(client)
+
+        response = await client.post(
+            "/api/v1/books/bulk-tag",
+            json={
+                "ids": [book_id, 9999],
+                "add": ["fiction", "Fiction", "fiction"],
+                "remove": [],
+            },
+        )
+        body = response.json()
+        assert body["updated"] == [book_id]
+        assert body["not_found"] == [9999]
+
+        detail = await client.get(f"/api/v1/books/{book_id}")
+        # Dedup: only one fiction tag despite three add entries.
+        fiction = [tag for tag in detail.json()["tags"] if tag["name"].lower() == "fiction"]
+        assert len(fiction) == 1
+
+
+@pytest.mark.asyncio
+async def test_bulk_tag_requires_at_least_one_action(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        book_id = await _upload(client)
+        response = await client.post(
+            "/api/v1/books/bulk-tag",
+            json={"ids": [book_id], "add": [], "remove": []},
+        )
+        assert response.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_patch_and_delete_require_admin(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
 ) -> None:
