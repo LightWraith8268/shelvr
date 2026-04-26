@@ -2,6 +2,12 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-04-26
+
+- Merge pull request #18 from LightWraith8268/claude/dev
+- feat(books): admin cover replace with thumbnail regeneration
+- feat(web): "Continue reading" row at top of Library
+
 ## [0.14.0] - 2026-04-26
 
 - Merge pull request #17 from LightWraith8268/claude/dev
