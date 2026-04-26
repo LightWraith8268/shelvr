@@ -2,6 +2,11 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-04-26
+
+- Merge pull request #17 from LightWraith8268/claude/dev
+- feat(books): admin bulk-tag with select-mode actions
+
 ## [0.13.0] - 2026-04-26
 
 - Merge pull request #16 from LightWraith8268/claude/dev
