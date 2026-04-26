@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any  # noqa: F401  (used in @router.get type annotations below)
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from shelvr.auth.service import AuthService
 from shelvr.auth.tokens import TokenError, decode_token
 from shelvr.config import Settings
 from shelvr.db.models import User
+from shelvr.repositories.reading_progress import ReadingProgressRepository
 from shelvr.repositories.refresh_tokens import RefreshTokenRepository
 from shelvr.repositories.users import UserRepository
 from shelvr.schemas.auth import (
@@ -120,6 +121,30 @@ async def logout(
 async def me(user: User = Depends(get_current_user)) -> User:
     """Return the currently authenticated user."""
     return user
+
+
+@router.get("/me/progress")
+async def my_progress(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict[str, list[dict[str, Any]]]:
+    """Return every reading-progress row for the current user.
+
+    Used by the Library grid to overlay a progress bar on each cover without
+    making one request per book. Empty list when nothing has been opened yet.
+    """
+    rows = await ReadingProgressRepository(session).list_for_user(user_id=user.id)
+    return {
+        "items": [
+            {
+                "book_id": row.book_id,
+                "locator": row.locator,
+                "percent": row.percent,
+                "updated_at": row.updated_at.isoformat(),
+            }
+            for row in rows
+        ]
+    }
 
 
 @router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)

@@ -30,3 +30,8 @@ export async function clearReadingProgress(bookId: number): Promise<void> {
   const response = await apiFetch(`/api/v1/books/${bookId}/progress`, { method: 'DELETE' })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
 }
+
+export async function listMyProgress(): Promise<ReadingProgress[]> {
+  const body = await apiJson<{ items: ReadingProgress[] }>('/api/v1/auth/me/progress')
+  return body.items
+}

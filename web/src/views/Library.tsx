@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { listBooks } from '../api/books'
 import {
@@ -7,6 +7,7 @@ import {
   listSeriesFacets,
   listTagFacets,
 } from '../api/facets'
+import { listMyProgress } from '../api/progress'
 import type { Book, BookSort } from '../api/types'
 import { BookCard } from '../components/BookCard'
 
@@ -65,6 +66,18 @@ export function Library({ onBookSelect }: Props) {
     queryKey: ['facets', 'series'],
     queryFn: listSeriesFacets,
   })
+  const myProgress = useQuery({
+    queryKey: ['me', 'progress'],
+    queryFn: listMyProgress,
+  })
+
+  const progressByBookId = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const entry of myProgress.data ?? []) {
+      map.set(entry.book_id, entry.percent)
+    }
+    return map
+  }, [myProgress.data])
 
   const total = data?.total ?? 0
   const items = data?.items ?? []
@@ -211,7 +224,11 @@ export function Library({ onBookSelect }: Props) {
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {items.map((book) => (
             <li key={book.id}>
-              <BookCard book={book} onClick={onBookSelect} />
+              <BookCard
+                book={book}
+                onClick={onBookSelect}
+                progressPercent={progressByBookId.get(book.id) ?? null}
+              />
             </li>
           ))}
         </ul>
