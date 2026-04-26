@@ -162,6 +162,60 @@ async def test_delete_book_404(
 
 
 @pytest.mark.asyncio
+async def test_bulk_delete_partitions_known_and_unknown_ids(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        first_id = await _upload(client)
+
+        response = await client.post("/api/v1/books/bulk-delete", json={"ids": [first_id, 9999]})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["deleted"] == [first_id]
+        assert body["not_found"] == [9999]
+
+        gone = await client.get(f"/api/v1/books/{first_id}")
+        assert gone.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_dedupes_and_cleans_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        first_id = await _upload(client)
+        before = await client.get(f"/api/v1/books/{first_id}")
+        format_path = library_path / before.json()["formats"][0]["file_path"]
+        cover_path = library_path / before.json()["cover_path"]
+        assert format_path.is_file()
+
+        response = await client.post(
+            "/api/v1/books/bulk-delete", json={"ids": [first_id, first_id, first_id]}
+        )
+        body = response.json()
+        # Dedup: a single delete even though the id was repeated.
+        assert body["deleted"] == [first_id]
+        assert body["not_found"] == []
+        assert not format_path.is_file()
+        assert not cover_path.is_file()
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_rejects_empty_ids(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post("/api/v1/books/bulk-delete", json={"ids": []})
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_patch_and_delete_require_admin(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
 ) -> None:

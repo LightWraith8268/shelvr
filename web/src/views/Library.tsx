@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { listBooks } from '../api/books'
+import { bulkDeleteBooks } from '../api/admin'
 import {
   listAuthorFacets,
   listLanguageFacets,
@@ -8,6 +9,7 @@ import {
   listTagFacets,
 } from '../api/facets'
 import { listMyProgress } from '../api/progress'
+import { useAuth } from '../auth/AuthProvider'
 import type { Book, BookSort } from '../api/types'
 import { BookCard } from '../components/BookCard'
 
@@ -18,6 +20,9 @@ interface Props {
 }
 
 export function Library({ onBookSelect }: Props) {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const queryClient = useQueryClient()
   const [page, setPage] = useState(0)
   const [sort, setSort] = useState<BookSort>('added')
   const [searchInput, setSearchInput] = useState('')
@@ -26,6 +31,8 @@ export function Library({ onBookSelect }: Props) {
   const [authorFilter, setAuthorFilter] = useState<number | ''>('')
   const [languageFilter, setLanguageFilter] = useState<string>('')
   const [seriesFilter, setSeriesFilter] = useState<number | ''>('')
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
 
   const offset = page * PAGE_SIZE
   const { data, isLoading, isFetching, error } = useQuery({
@@ -78,6 +85,39 @@ export function Library({ onBookSelect }: Props) {
     }
     return map
   }, [myProgress.data])
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: number[]) => bulkDeleteBooks(ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['books'] })
+      queryClient.invalidateQueries({ queryKey: ['facets'] })
+      setSelectedIds(new Set())
+      setSelectMode(false)
+    },
+  })
+
+  function toggleSelected(book: Book) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(book.id)) next.delete(book.id)
+      else next.add(book.id)
+      return next
+    })
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
+
+  function confirmAndBulkDelete() {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const ok = window.confirm(
+      `Delete ${ids.length} book${ids.length === 1 ? '' : 's'}? Removes rows and files. Cannot be undone.`,
+    )
+    if (ok) bulkDeleteMutation.mutate(ids)
+  }
 
   const total = data?.total ?? 0
   const items = data?.items ?? []
@@ -195,18 +235,56 @@ export function Library({ onBookSelect }: Props) {
         </div>
       </div>
 
-      {hasActiveFilter && (
-        <div className="mb-4 flex items-center gap-2 text-xs text-slate-500">
-          <span>{total} match{total === 1 ? '' : 'es'}</span>
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="rounded-md border border-slate-300 bg-white px-2 py-0.5 hover:bg-slate-50"
-          >
-            Clear filters
-          </button>
+      <div className="mb-4 flex items-center justify-between gap-2 text-xs text-slate-500">
+        <div className="flex items-center gap-2">
+          {hasActiveFilter && (
+            <>
+              <span>
+                {total} match{total === 1 ? '' : 'es'}
+              </span>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-md border border-slate-300 bg-white px-2 py-0.5 hover:bg-slate-50"
+              >
+                Clear filters
+              </button>
+            </>
+          )}
         </div>
-      )}
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            {selectMode ? (
+              <>
+                <span>{selectedIds.size} selected</span>
+                <button
+                  type="button"
+                  onClick={confirmAndBulkDelete}
+                  disabled={selectedIds.size === 0 || bulkDeleteMutation.isPending}
+                  className="rounded-md border border-red-300 bg-white px-2 py-0.5 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                >
+                  {bulkDeleteMutation.isPending ? 'Deleting…' : 'Delete selected'}
+                </button>
+                <button
+                  type="button"
+                  onClick={exitSelectMode}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-0.5 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSelectMode(true)}
+                className="rounded-md border border-slate-300 bg-white px-2 py-0.5 hover:bg-slate-50"
+              >
+                Select
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {error && (
         <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -228,6 +306,9 @@ export function Library({ onBookSelect }: Props) {
                 book={book}
                 onClick={onBookSelect}
                 progressPercent={progressByBookId.get(book.id) ?? null}
+                selectable={selectMode}
+                selected={selectedIds.has(book.id)}
+                onToggleSelected={toggleSelected}
               />
             </li>
           ))}

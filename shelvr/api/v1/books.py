@@ -17,7 +17,13 @@ from shelvr.formats.base import FormatReadError, UnsupportedFormatError
 from shelvr.plugins import PluginRegistry
 from shelvr.repositories.books import BookRepository
 from shelvr.repositories.reading_progress import ReadingProgressRepository
-from shelvr.schemas.book import BookList, BookRead, BookUpdate
+from shelvr.schemas.book import (
+    BookList,
+    BookRead,
+    BookUpdate,
+    BulkDeleteRequest,
+    BulkDeleteResponse,
+)
 from shelvr.schemas.reading_progress import ReadingProgressRead, ReadingProgressUpsert
 from shelvr.services.hashing import sha256_bytes
 from shelvr.services.importer import import_file
@@ -214,6 +220,56 @@ async def delete_progress(
     await ReadingProgressRepository(session).delete(book_id=book_id, user_id=user.id)
     await session.commit()
     return None
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteResponse)
+async def bulk_delete_books(
+    body: BulkDeleteRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    _admin: User = Depends(require_admin),
+) -> BulkDeleteResponse:
+    """Delete a batch of books in one call. Best-effort file cleanup per book.
+
+    Admin only. Returns which ids were deleted and which didn't exist. Order
+    of input ids is not preserved in the response.
+    """
+    repo = BookRepository(session)
+    library_root = settings.library_path.resolve()
+    deleted: list[int] = []
+    not_found: list[int] = []
+    paths_to_remove: list[Path] = []
+
+    # Dedupe to avoid double-deleting and double-counting.
+    for book_id in dict.fromkeys(body.ids):
+        book = await repo.delete_book(book_id)
+        if book is None:
+            not_found.append(book_id)
+            continue
+        deleted.append(book_id)
+        for book_format in book.formats:
+            candidate = (settings.library_path / book_format.file_path).resolve()
+            if _is_within(candidate, library_root) and candidate.is_file():
+                paths_to_remove.append(candidate)
+        if book.cover_path:
+            cover_candidate = (settings.library_path / book.cover_path).resolve()
+            if _is_within(cover_candidate, library_root) and cover_candidate.is_file():
+                paths_to_remove.append(cover_candidate)
+                cover_dir = cover_candidate.parent
+                for size in ("small", "medium"):
+                    sized = cover_dir / f"cover-{size}.jpg"
+                    if sized.is_file():
+                        paths_to_remove.append(sized)
+
+    await session.commit()
+
+    for file_path in paths_to_remove:
+        try:
+            file_path.unlink()
+        except OSError:
+            continue
+
+    return BulkDeleteResponse(deleted=deleted, not_found=not_found)
 
 
 @router.post("", response_model=BookRead)
