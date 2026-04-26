@@ -6,6 +6,48 @@ import type { Book as EpubBook, Rendition } from 'epubjs'
 import { formatFileUrl, getBook } from '../api/books'
 import { apiFetch } from '../api/client'
 import { getReadingProgress, putReadingProgress } from '../api/progress'
+import { PdfReader } from './PdfReader'
+
+type Theme = 'light' | 'sepia' | 'dark'
+
+const THEME_STORAGE_KEY = 'shelvr.reader.theme'
+const FONT_SIZE_STORAGE_KEY = 'shelvr.reader.fontSize'
+const MIN_FONT = 80
+const MAX_FONT = 180
+const FONT_STEP = 10
+
+const THEME_STYLES: Record<Theme, Record<string, Record<string, string>>> = {
+  light: {
+    body: { color: '#0f172a', background: '#ffffff' },
+    a: { color: '#0f766e' },
+  },
+  sepia: {
+    body: { color: '#3a2f17', background: '#f4ecd8' },
+    a: { color: '#7c5b1e' },
+  },
+  dark: {
+    body: { color: '#e2e8f0', background: '#0f172a' },
+    a: { color: '#5eead4' },
+  },
+}
+
+const CONTAINER_BG: Record<Theme, string> = {
+  light: 'bg-white',
+  sepia: 'bg-[#f4ecd8]',
+  dark: 'bg-slate-900',
+}
+
+function loadStoredTheme(): Theme {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY)
+  if (stored === 'light' || stored === 'sepia' || stored === 'dark') return stored
+  return 'light'
+}
+
+function loadStoredFontSize(): number {
+  const stored = Number(localStorage.getItem(FONT_SIZE_STORAGE_KEY))
+  if (Number.isFinite(stored) && stored >= MIN_FONT && stored <= MAX_FONT) return stored
+  return 100
+}
 
 export function ReaderView() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -14,6 +56,8 @@ export function ReaderView() {
   const renditionRef = useRef<Rendition | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [theme, setTheme] = useState<Theme>(() => loadStoredTheme())
+  const [fontSize, setFontSize] = useState<number>(() => loadStoredFontSize())
 
   const { data: book } = useQuery({
     queryKey: ['book', numericId],
@@ -22,6 +66,7 @@ export function ReaderView() {
   })
 
   const epubFormat = book?.formats.find((format) => format.format.toLowerCase() === 'epub')
+  const pdfFormat = book?.formats.find((format) => format.format.toLowerCase() === 'pdf')
 
   useEffect(() => {
     if (!epubFormat || !containerRef.current || !Number.isFinite(numericId)) return
@@ -51,8 +96,13 @@ export function ReaderView() {
         })
         renditionRef.current = rendition
 
-        // Debounced save on relocation. Wrap so the cleanup function can
-        // detach it without recreating the listener.
+        // Register all themes up front so toggling later is one select call.
+        for (const [name, rules] of Object.entries(THEME_STYLES)) {
+          rendition.themes.register(name, rules)
+        }
+        rendition.themes.select(theme)
+        rendition.themes.fontSize(`${fontSize}%`)
+
         const handleRelocated = (location: { start?: { cfi?: string; percentage?: number } }) => {
           const cfi = location?.start?.cfi
           const percent = location?.start?.percentage
@@ -91,7 +141,26 @@ export function ReaderView() {
         bookInstance.destroy()
       }
     }
+    // theme + fontSize intentionally omitted: change handlers below apply
+    // them to the live rendition so we don't need a full reinit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epubFormat, numericId])
+
+  // Apply theme changes to the existing rendition.
+  useEffect(() => {
+    localStorage.setItem(THEME_STORAGE_KEY, theme)
+    if (renditionRef.current) {
+      renditionRef.current.themes.select(theme)
+    }
+  }, [theme])
+
+  // Apply font-size changes to the existing rendition.
+  useEffect(() => {
+    localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSize))
+    if (renditionRef.current) {
+      renditionRef.current.themes.fontSize(`${fontSize}%`)
+    }
+  }, [fontSize])
 
   // Keyboard navigation: ←/→ for prev/next page.
   useEffect(() => {
@@ -110,15 +179,20 @@ export function ReaderView() {
   if (!Number.isFinite(numericId) || numericId <= 0) {
     return <p className="text-red-600">Invalid book id.</p>
   }
-  if (book && !epubFormat) {
+  // Prefer EPUB (paginated reader with progress sync, themes, font scaling);
+  // fall back to native PDF viewer when only a PDF is available.
+  if (book && !epubFormat && pdfFormat) {
+    return <PdfReader bookId={numericId} format={pdfFormat} />
+  }
+  if (book && !epubFormat && !pdfFormat) {
     return (
       <div className="max-w-2xl">
         <Link to={`/books/${numericId}`} className="text-sm text-slate-500 hover:text-slate-900">
           ← Back to book
         </Link>
         <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          In-browser reader supports EPUB only for now. This book has no EPUB format —
-          download a copy and read it in your preferred app.
+          In-browser reader supports EPUB and PDF. This book has neither — download a copy
+          and read it in your preferred app.
         </p>
       </div>
     )
@@ -126,11 +200,45 @@ export function ReaderView() {
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <Link to={`/books/${numericId}`} className="text-sm text-slate-500 hover:text-slate-900">
           ← Back to book
         </Link>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1 text-xs text-slate-600">
+            Theme
+            <select
+              value={theme}
+              onChange={(event) => setTheme(event.target.value as Theme)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+            >
+              <option value="light">Light</option>
+              <option value="sepia">Sepia</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <div className="flex items-center gap-1 text-xs text-slate-600">
+            <span>Aa</span>
+            <button
+              type="button"
+              onClick={() => setFontSize((current) => Math.max(MIN_FONT, current - FONT_STEP))}
+              disabled={fontSize <= MIN_FONT}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 disabled:opacity-50"
+              aria-label="Decrease font size"
+            >
+              −
+            </button>
+            <span className="w-10 text-center font-mono text-[10px]">{fontSize}%</span>
+            <button
+              type="button"
+              onClick={() => setFontSize((current) => Math.min(MAX_FONT, current + FONT_STEP))}
+              disabled={fontSize >= MAX_FONT}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 disabled:opacity-50"
+              aria-label="Increase font size"
+            >
+              +
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => renditionRef.current?.prev()}
@@ -157,9 +265,9 @@ export function ReaderView() {
 
       <div
         ref={containerRef}
-        className={`flex-1 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm ${
-          isLoading ? 'opacity-0' : ''
-        }`}
+        className={`flex-1 overflow-hidden rounded-md border border-slate-200 shadow-sm transition-colors ${
+          CONTAINER_BG[theme]
+        } ${isLoading ? 'opacity-0' : ''}`}
       />
     </div>
   )
