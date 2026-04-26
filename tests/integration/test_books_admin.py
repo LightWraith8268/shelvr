@@ -284,6 +284,67 @@ async def test_bulk_tag_requires_at_least_one_action(
 
 
 @pytest.mark.asyncio
+async def test_replace_cover_writes_new_jpeg_and_thumbs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    """PUT /books/{id}/cover writes cover.jpg + sized thumbs and updates book.cover_path."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        book_id = await _upload(client)
+
+        buffer = BytesIO()
+        Image.new("RGB", (300, 450), (200, 100, 50)).save(buffer, format="PNG")
+        png_bytes = buffer.getvalue()
+
+        response = await client.put(
+            f"/api/v1/books/{book_id}/cover",
+            files={"file": ("new-cover.png", png_bytes, "image/png")},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        cover_relative = body["cover_path"]
+        assert cover_relative
+        cover_dir = (library_path / cover_relative).parent
+        assert (cover_dir / "cover.jpg").is_file()
+        assert (cover_dir / "cover-medium.jpg").is_file()
+        assert (cover_dir / "cover-small.jpg").is_file()
+
+
+@pytest.mark.asyncio
+async def test_replace_cover_rejects_non_image(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        book_id = await _upload(client)
+        response = await client.put(
+            f"/api/v1/books/{book_id}/cover",
+            files={"file": ("readme.txt", b"not an image", "text/plain")},
+        )
+        assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_replace_cover_404(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
+) -> None:
+    test_app = await _setup_app(monkeypatch, tmp_path, library_path)
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.put(
+            "/api/v1/books/9999/cover",
+            files={"file": ("img.png", b"\x89PNG\r\n\x1a\n", "image/png")},
+        )
+        assert response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_patch_and_delete_require_admin(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, library_path: Path
 ) -> None:

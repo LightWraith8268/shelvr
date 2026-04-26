@@ -35,3 +35,16 @@ export async function listMyProgress(): Promise<ReadingProgress[]> {
   const body = await apiJson<{ items: ReadingProgress[] }>('/api/v1/auth/me/progress')
   return body.items
 }
+
+export interface RecentBook {
+  id: number
+  title: string
+  authors: { id: number; name: string; sort_name: string | null }[]
+  cover_path: string | null
+  percent: number
+}
+
+export async function listMyRecentBooks(): Promise<RecentBook[]> {
+  const body = await apiJson<{ items: RecentBook[] }>('/api/v1/auth/me/recent-books')
+  return body.items
+}

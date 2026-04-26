@@ -58,3 +58,23 @@ export async function bulkTagBooks(
     body: JSON.stringify({ ids, add, remove }),
   })
 }
+
+export async function replaceBookCover(bookId: number, file: File): Promise<Book> {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  const response = await apiFetch(`/api/v1/books/${bookId}/cover`, {
+    method: 'PUT',
+    body: form,
+  })
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`
+    try {
+      const body = (await response.json()) as { detail?: string }
+      if (body.detail) detail = body.detail
+    } catch {
+      // body wasn't JSON
+    }
+    throw new Error(detail)
+  }
+  return (await response.json()) as Book
+}

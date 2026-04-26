@@ -12,6 +12,7 @@ import { listMyProgress } from '../api/progress'
 import { useAuth } from '../auth/AuthProvider'
 import type { Book, BookSort } from '../api/types'
 import { BookCard } from '../components/BookCard'
+import { ContinueReading } from '../components/ContinueReading'
 
 const PAGE_SIZE = 50
 
@@ -206,6 +207,7 @@ export function Library({ onBookSelect }: Props) {
 
   return (
     <div>
+      <ContinueReading />
       <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_auto_auto_auto]">
         <form onSubmit={handleSearchSubmit}>
           <label className="block text-xs font-medium text-slate-500" htmlFor="library-search">
