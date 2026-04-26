@@ -97,7 +97,9 @@ export function BookDetail() {
           {authors && <p className="mt-1 text-slate-600">{authors}</p>}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            {book.formats.some((format) => format.format.toLowerCase() === 'epub') && (
+            {book.formats.some((format) =>
+              ['epub', 'pdf'].includes(format.format.toLowerCase()),
+            ) && (
               <Link
                 to={`/books/${book.id}/read`}
                 className="rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
