@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { listBooks } from '../api/books'
-import { bulkDeleteBooks } from '../api/admin'
+import { bulkDeleteBooks, bulkTagBooks } from '../api/admin'
 import {
   listAuthorFacets,
   listLanguageFacets,
@@ -95,6 +95,43 @@ export function Library({ onBookSelect }: Props) {
       setSelectMode(false)
     },
   })
+
+  const bulkTagMutation = useMutation({
+    mutationFn: ({
+      ids,
+      add,
+      remove,
+    }: {
+      ids: number[]
+      add: string[]
+      remove: string[]
+    }) => bulkTagBooks(ids, add, remove),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['books'] })
+      queryClient.invalidateQueries({ queryKey: ['facets'] })
+    },
+  })
+
+  function promptBulkTag(mode: 'add' | 'remove') {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const raw = window.prompt(
+      mode === 'add'
+        ? `Tags to ADD to ${ids.length} book${ids.length === 1 ? '' : 's'} (comma-separated):`
+        : `Tags to REMOVE from ${ids.length} book${ids.length === 1 ? '' : 's'} (comma-separated):`,
+    )
+    if (!raw) return
+    const tags = raw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    if (tags.length === 0) return
+    bulkTagMutation.mutate({
+      ids,
+      add: mode === 'add' ? tags : [],
+      remove: mode === 'remove' ? tags : [],
+    })
+  }
 
   function toggleSelected(book: Book) {
     setSelectedIds((current) => {
@@ -257,6 +294,22 @@ export function Library({ onBookSelect }: Props) {
             {selectMode ? (
               <>
                 <span>{selectedIds.size} selected</span>
+                <button
+                  type="button"
+                  onClick={() => promptBulkTag('add')}
+                  disabled={selectedIds.size === 0 || bulkTagMutation.isPending}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-0.5 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {bulkTagMutation.isPending ? 'Tagging…' : 'Add tags'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => promptBulkTag('remove')}
+                  disabled={selectedIds.size === 0 || bulkTagMutation.isPending}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-0.5 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Remove tags
+                </button>
                 <button
                   type="button"
                   onClick={confirmAndBulkDelete}

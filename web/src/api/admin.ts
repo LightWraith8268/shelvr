@@ -41,3 +41,20 @@ export async function bulkDeleteBooks(ids: number[]): Promise<BulkDeleteResult> 
     body: JSON.stringify({ ids }),
   })
 }
+
+export interface BulkTagResult {
+  updated: number[]
+  not_found: number[]
+}
+
+export async function bulkTagBooks(
+  ids: number[],
+  add: string[],
+  remove: string[],
+): Promise<BulkTagResult> {
+  return apiJson<BulkTagResult>('/api/v1/books/bulk-tag', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, add, remove }),
+  })
+}

@@ -23,6 +23,8 @@ from shelvr.schemas.book import (
     BookUpdate,
     BulkDeleteRequest,
     BulkDeleteResponse,
+    BulkTagRequest,
+    BulkTagResponse,
 )
 from shelvr.schemas.reading_progress import ReadingProgressRead, ReadingProgressUpsert
 from shelvr.services.hashing import sha256_bytes
@@ -220,6 +222,24 @@ async def delete_progress(
     await ReadingProgressRepository(session).delete(book_id=book_id, user_id=user.id)
     await session.commit()
     return None
+
+
+@router.post("/bulk-tag", response_model=BulkTagResponse)
+async def bulk_tag_books(
+    body: BulkTagRequest,
+    session: AsyncSession = Depends(get_session),
+    _admin: User = Depends(require_admin),
+) -> BulkTagResponse:
+    """Add and/or remove tags across a batch of books. Admin only."""
+    if not body.add and not body.remove:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="at least one of add/remove must be non-empty",
+        )
+    repo = BookRepository(session)
+    updated, not_found = await repo.bulk_tag(book_ids=body.ids, add=body.add, remove=body.remove)
+    await session.commit()
+    return BulkTagResponse(updated=updated, not_found=not_found)
 
 
 @router.post("/bulk-delete", response_model=BulkDeleteResponse)
