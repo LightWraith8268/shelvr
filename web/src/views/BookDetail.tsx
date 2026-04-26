@@ -3,6 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { coverUrl, formatFileUrl, getBook } from '../api/books'
 import { deleteBook } from '../api/admin'
 import { downloadAuthedFile, useAuthedBlob } from '../api/media'
+import {
+  clearReadingProgress,
+  getReadingProgress,
+  putReadingProgress,
+} from '../api/progress'
 import { useAuth } from '../auth/AuthProvider'
 import type { Format } from '../api/types'
 
@@ -40,6 +45,29 @@ export function BookDetail() {
       queryClient.invalidateQueries({ queryKey: ['books'] })
       queryClient.removeQueries({ queryKey: ['book', numericId] })
       navigate('/')
+    },
+  })
+
+  const progressQuery = useQuery({
+    queryKey: ['progress', numericId],
+    queryFn: () => getReadingProgress(numericId),
+    enabled: Number.isFinite(numericId) && numericId > 0,
+  })
+
+  const markReadMutation = useMutation({
+    mutationFn: () =>
+      putReadingProgress(numericId, progressQuery.data?.locator || 'shelvr:read', 1),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['progress', numericId], updated)
+      queryClient.invalidateQueries({ queryKey: ['me', 'progress'] })
+    },
+  })
+
+  const clearProgressMutation = useMutation({
+    mutationFn: () => clearReadingProgress(numericId),
+    onSuccess: () => {
+      queryClient.setQueryData(['progress', numericId], null)
+      queryClient.invalidateQueries({ queryKey: ['me', 'progress'] })
     },
   })
 
@@ -96,6 +124,20 @@ export function BookDetail() {
 <h2 className="text-2xl font-semibold tracking-tight">{book.title}</h2>
           {authors && <p className="mt-1 text-slate-600">{authors}</p>}
 
+          {progressQuery.data && progressQuery.data.percent > 0 && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-slate-600">
+              <div className="h-1.5 w-32 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full bg-emerald-500"
+                  style={{
+                    width: `${Math.round(Math.min(1, progressQuery.data.percent) * 100)}%`,
+                  }}
+                />
+              </div>
+              <span>{Math.round(Math.min(1, progressQuery.data.percent) * 100)}% read</span>
+            </div>
+          )}
+
           <div className="mt-3 flex flex-wrap gap-2">
             {book.formats.some((format) =>
               ['epub', 'pdf'].includes(format.format.toLowerCase()),
@@ -106,6 +148,36 @@ export function BookDetail() {
               >
                 Read in browser
               </Link>
+            )}
+            {progressQuery.data && progressQuery.data.percent < 1 && (
+              <button
+                type="button"
+                onClick={() => markReadMutation.mutate()}
+                disabled={markReadMutation.isPending}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+              >
+                {markReadMutation.isPending ? 'Saving…' : 'Mark as read'}
+              </button>
+            )}
+            {!progressQuery.data && (
+              <button
+                type="button"
+                onClick={() => markReadMutation.mutate()}
+                disabled={markReadMutation.isPending}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+              >
+                Mark as read
+              </button>
+            )}
+            {progressQuery.data && (
+              <button
+                type="button"
+                onClick={() => clearProgressMutation.mutate()}
+                disabled={clearProgressMutation.isPending}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+              >
+                {clearProgressMutation.isPending ? 'Clearing…' : 'Clear progress'}
+              </button>
             )}
             {isAdmin && (
               <>
