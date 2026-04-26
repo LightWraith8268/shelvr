@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shelvr"
-version = "0.10.0"
+version = "0.11.0"
 description = "Self-hosted ebook library server — part of Ink & Iron Apps"
 readme = "README.md"
 requires-python = ">=3.11"
