@@ -23,6 +23,7 @@ from shelvr.schemas.auth import (
     PasswordChangeRequest,
     RefreshRequest,
     TokenResponse,
+    UsernameChangeRequest,
     UserRead,
 )
 
@@ -145,6 +146,42 @@ async def my_progress(
             for row in rows
         ]
     }
+
+
+@router.post("/me/username", response_model=UserRead)
+async def change_username(
+    body: UsernameChangeRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> User:
+    """Rotate the current user's username.
+
+    Requires the current password as a guard against stolen access tokens.
+    Returns 409 if the new username is already taken (case-sensitive match
+    against the users table). Returns the updated user on success; existing
+    JWTs stay valid because they bind to user_id, not username.
+    """
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="current password is incorrect"
+        )
+
+    new_username = body.new_username.strip()
+    if not new_username:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="username must not be blank"
+        )
+
+    user_repo = UserRepository(session)
+    if new_username != user.username:
+        clash = await user_repo.get_by_username(new_username)
+        if clash is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="username already taken"
+            )
+        await user_repo.update_username(user, new_username)
+        await session.commit()
+    return user
 
 
 @router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)

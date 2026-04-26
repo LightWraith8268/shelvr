@@ -1,53 +1,96 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { changePassword, PasswordChangeError } from '../api/auth'
+import { useQueryClient } from '@tanstack/react-query'
+import {
+  changePassword,
+  changeUsername,
+  PasswordChangeError,
+  UsernameChangeError,
+} from '../api/auth'
 import { useAuth } from '../auth/AuthProvider'
 import { clearTokens } from '../api/client'
 
 export function AccountView() {
-  const { user, logout } = useAuth()
+  const { user, logout, refresh } = useAuth()
+  const queryClient = useQueryClient()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [pwError, setPwError] = useState<string | null>(null)
+  const [pwSuccess, setPwSuccess] = useState<string | null>(null)
+  const [isSubmittingPw, setIsSubmittingPw] = useState(false)
 
-  async function handleSubmit(event: FormEvent) {
+  const [usernameInput, setUsernameInput] = useState('')
+  const [usernamePassword, setUsernamePassword] = useState('')
+  const [unameError, setUnameError] = useState<string | null>(null)
+  const [unameSuccess, setUnameSuccess] = useState<string | null>(null)
+  const [isSubmittingUname, setIsSubmittingUname] = useState(false)
+
+  useEffect(() => {
+    if (user && !usernameInput) setUsernameInput(user.username)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+
+  async function handlePasswordSubmit(event: FormEvent) {
     event.preventDefault()
-    setErrorMessage(null)
-    setSuccessMessage(null)
+    setPwError(null)
+    setPwSuccess(null)
 
     if (newPassword !== confirmPassword) {
-      setErrorMessage('New password and confirmation do not match.')
+      setPwError('New password and confirmation do not match.')
       return
     }
     if (newPassword.length < 8) {
-      setErrorMessage('New password must be at least 8 characters.')
+      setPwError('New password must be at least 8 characters.')
       return
     }
 
-    setIsSubmitting(true)
+    setIsSubmittingPw(true)
     try {
       await changePassword(currentPassword, newPassword)
-      // Server revokes all refresh tokens on rotation. Drop local state and
-      // route the user to /login so they sign in again with the new password.
       clearTokens()
-      setSuccessMessage('Password changed. Please sign in again.')
+      setPwSuccess('Password changed. Please sign in again.')
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-      // Trigger logout-driven redirect once user reads the message.
       setTimeout(() => {
         logout()
       }, 1500)
     } catch (caught) {
-      setErrorMessage(
+      setPwError(
         caught instanceof PasswordChangeError ? caught.message : 'Password change failed.',
       )
     } finally {
-      setIsSubmitting(false)
+      setIsSubmittingPw(false)
+    }
+  }
+
+  async function handleUsernameSubmit(event: FormEvent) {
+    event.preventDefault()
+    setUnameError(null)
+    setUnameSuccess(null)
+
+    const trimmed = usernameInput.trim()
+    if (!trimmed) {
+      setUnameError('Username must not be blank.')
+      return
+    }
+
+    setIsSubmittingUname(true)
+    try {
+      const updated = await changeUsername(usernamePassword, trimmed)
+      setUnameSuccess(`Username changed to ${updated.username}.`)
+      setUsernamePassword('')
+      // Push the new user into AuthProvider so the header updates immediately.
+      await refresh()
+      queryClient.invalidateQueries({ queryKey: ['me'] })
+    } catch (caught) {
+      setUnameError(
+        caught instanceof UsernameChangeError ? caught.message : 'Username change failed.',
+      )
+    } finally {
+      setIsSubmittingUname(false)
     }
   }
 
@@ -69,8 +112,49 @@ export function AccountView() {
         </dl>
       )}
 
-      <h3 className="text-sm font-medium text-slate-700">Change password</h3>
-      <form onSubmit={handleSubmit} className="mt-3 space-y-3">
+      <h3 className="text-sm font-medium text-slate-700">Change username</h3>
+      <form onSubmit={handleUsernameSubmit} className="mt-3 space-y-3">
+        <Field label="New username">
+          <input
+            type="text"
+            autoComplete="username"
+            required
+            value={usernameInput}
+            onChange={(event) => setUsernameInput(event.target.value)}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Current password">
+          <input
+            type="password"
+            autoComplete="current-password"
+            required
+            value={usernamePassword}
+            onChange={(event) => setUsernamePassword(event.target.value)}
+            className={inputClass}
+          />
+        </Field>
+        {unameError && (
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {unameError}
+          </p>
+        )}
+        {unameSuccess && (
+          <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {unameSuccess}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={isSubmittingUname}
+          className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
+        >
+          {isSubmittingUname ? 'Saving…' : 'Change username'}
+        </button>
+      </form>
+
+      <h3 className="mt-8 text-sm font-medium text-slate-700">Change password</h3>
+      <form onSubmit={handlePasswordSubmit} className="mt-3 space-y-3">
         <Field label="Current password">
           <input
             type="password"
@@ -104,23 +188,23 @@ export function AccountView() {
           />
         </Field>
 
-        {errorMessage && (
+        {pwError && (
           <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {errorMessage}
+            {pwError}
           </p>
         )}
-        {successMessage && (
+        {pwSuccess && (
           <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            {successMessage}
+            {pwSuccess}
           </p>
         )}
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmittingPw}
           className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
         >
-          {isSubmitting ? 'Changing…' : 'Change password'}
+          {isSubmittingPw ? 'Changing…' : 'Change password'}
         </button>
       </form>
     </section>

@@ -20,6 +20,7 @@ interface AuthState {
   user: CurrentUser | null
   login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refresh: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -71,6 +72,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('authenticated')
   }, [])
 
+  const refresh = useCallback(async () => {
+    try {
+      const me = await fetchMe()
+      setUser(me)
+    } catch {
+      // Ignore — bootstrap / interceptor handle auth-lost flows.
+    }
+  }, [])
+
   const logout = useCallback(async () => {
     const refresh = getRefreshToken()
     try {
@@ -84,8 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AuthState>(
-    () => ({ status, user, login, logout }),
-    [status, user, login, logout],
+    () => ({ status, user, login, logout, refresh }),
+    [status, user, login, logout, refresh],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
