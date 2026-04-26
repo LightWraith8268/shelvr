@@ -57,3 +57,10 @@ class PasswordChangeRequest(BaseModel):
 
     current_password: str = Field(..., min_length=1, max_length=500)
     new_password: str = Field(..., min_length=8, max_length=500)
+
+
+class UsernameChangeRequest(BaseModel):
+    """Body for POST /auth/me/username."""
+
+    current_password: str = Field(..., min_length=1, max_length=500)
+    new_username: str = Field(..., min_length=1, max_length=100)

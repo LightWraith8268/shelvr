@@ -45,3 +45,8 @@ class UserRepository:
         """Replace the stored password hash for ``user``."""
         user.password_hash = password_hash
         await self._session.flush()
+
+    async def update_username(self, user: User, new_username: str) -> None:
+        """Replace the username for ``user``. Caller is responsible for uniqueness check."""
+        user.username = new_username
+        await self._session.flush()

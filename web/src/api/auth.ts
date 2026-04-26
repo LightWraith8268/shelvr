@@ -46,6 +46,34 @@ export async function logout(refreshToken: string | null): Promise<void> {
 }
 
 export class PasswordChangeError extends Error {}
+export class UsernameChangeError extends Error {}
+
+export async function changeUsername(
+  currentPassword: string,
+  newUsername: string,
+): Promise<CurrentUser> {
+  const response = await apiFetch('/api/v1/auth/me/username', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_username: newUsername,
+    }),
+  })
+  if (response.status === 400) {
+    throw new UsernameChangeError('Current password is incorrect.')
+  }
+  if (response.status === 409) {
+    throw new UsernameChangeError('That username is already taken.')
+  }
+  if (response.status === 422) {
+    throw new UsernameChangeError('Username must not be blank.')
+  }
+  if (!response.ok) {
+    throw new UsernameChangeError(`Username change failed (HTTP ${response.status}).`)
+  }
+  return (await response.json()) as CurrentUser
+}
 
 export async function changePassword(
   currentPassword: string,
