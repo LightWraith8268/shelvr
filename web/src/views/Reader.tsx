@@ -49,6 +49,29 @@ function loadStoredFontSize(): number {
   return 100
 }
 
+interface TocEntry {
+  label: string
+  href: string
+  depth: number
+}
+
+function flattenToc(
+  items: ReadonlyArray<{ label?: string; href?: string; subitems?: unknown }>,
+  depth = 0,
+  out: TocEntry[] = [],
+): TocEntry[] {
+  for (const item of items) {
+    if (item?.href && item?.label) {
+      out.push({ label: item.label.trim(), href: item.href, depth })
+    }
+    const subitems = (item as { subitems?: unknown }).subitems
+    if (Array.isArray(subitems)) {
+      flattenToc(subitems as ReadonlyArray<{ label?: string; href?: string }>, depth + 1, out)
+    }
+  }
+  return out
+}
+
 export function ReaderView() {
   const { bookId } = useParams<{ bookId: string }>()
   const numericId = Number(bookId)
@@ -58,6 +81,8 @@ export function ReaderView() {
   const [isLoading, setIsLoading] = useState(true)
   const [theme, setTheme] = useState<Theme>(() => loadStoredTheme())
   const [fontSize, setFontSize] = useState<number>(() => loadStoredFontSize())
+  const [toc, setToc] = useState<TocEntry[]>([])
+  const [isTocOpen, setIsTocOpen] = useState(false)
 
   const { data: book } = useQuery({
     queryKey: ['book', numericId],
@@ -118,6 +143,17 @@ export function ReaderView() {
         }
         rendition.on('relocated', handleRelocated)
 
+        // Populate TOC once the book is parsed.
+        bookInstance.loaded.navigation
+          .then((navigation: { toc?: unknown }) => {
+            if (cancelled) return
+            const items = Array.isArray(navigation?.toc) ? navigation.toc : []
+            setToc(flattenToc(items as ReadonlyArray<{ label?: string; href?: string }>))
+          })
+          .catch(() => {
+            // Books without navigation are fine — TOC stays empty.
+          })
+
         const target = progress?.locator || undefined
         return rendition.display(target).then(() => {
           if (!cancelled) setIsLoading(false)
@@ -140,6 +176,7 @@ export function ReaderView() {
       if (bookInstance) {
         bookInstance.destroy()
       }
+      setToc([])
     }
     // theme + fontSize intentionally omitted: change handlers below apply
     // them to the live rendition so we don't need a full reinit.
@@ -205,6 +242,16 @@ export function ReaderView() {
           ← Back to book
         </Link>
         <div className="flex flex-wrap items-center gap-2">
+          {toc.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsTocOpen((current) => !current)}
+              aria-expanded={isTocOpen}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+            >
+              {isTocOpen ? 'Hide contents' : 'Contents'}
+            </button>
+          )}
           <label className="flex items-center gap-1 text-xs text-slate-600">
             Theme
             <select
@@ -263,12 +310,38 @@ export function ReaderView() {
       )}
       {isLoading && !error && <p className="text-slate-500">Loading book…</p>}
 
-      <div
-        ref={containerRef}
-        className={`flex-1 overflow-hidden rounded-md border border-slate-200 shadow-sm transition-colors ${
-          CONTAINER_BG[theme]
-        } ${isLoading ? 'opacity-0' : ''}`}
-      />
+      <div className="flex flex-1 gap-3 overflow-hidden">
+        {isTocOpen && toc.length > 0 && (
+          <aside className="w-64 shrink-0 overflow-y-auto rounded-md border border-slate-200 bg-white p-3 text-sm shadow-sm">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Contents
+            </h3>
+            <ul className="space-y-0.5">
+              {toc.map((entry, index) => (
+                <li key={`${entry.href}-${index}`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      renditionRef.current?.display(entry.href)
+                    }}
+                    className="block w-full truncate rounded px-2 py-1 text-left text-slate-700 hover:bg-slate-100"
+                    style={{ paddingLeft: `${0.5 + entry.depth * 0.75}rem` }}
+                    title={entry.label}
+                  >
+                    {entry.label || '—'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        )}
+        <div
+          ref={containerRef}
+          className={`flex-1 overflow-hidden rounded-md border border-slate-200 shadow-sm transition-colors ${
+            CONTAINER_BG[theme]
+          } ${isLoading ? 'opacity-0' : ''}`}
+        />
+      </div>
     </div>
   )
 }
