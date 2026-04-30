@@ -11,11 +11,29 @@ import {
   listBookmarks,
 } from '../api/bookmarks'
 import type { Bookmark } from '../api/bookmarks'
+import {
+  createHighlight,
+  deleteHighlight as deleteHighlightRequest,
+  listHighlights,
+  updateHighlight,
+} from '../api/highlights'
+import type { Highlight, HighlightColor } from '../api/highlights'
 import { getReadingProgress, putReadingProgress } from '../api/progress'
 import { useToast } from '../components/ToastProvider'
 import { PdfReader } from './PdfReader'
 
-type SidebarTab = 'toc' | 'bookmarks'
+type SidebarTab = 'toc' | 'bookmarks' | 'highlights'
+
+const HIGHLIGHT_COLORS: { color: HighlightColor; hex: string; label: string }[] = [
+  { color: 'yellow', hex: '#fde68a', label: 'Yellow' },
+  { color: 'green', hex: '#bbf7d0', label: 'Green' },
+  { color: 'blue', hex: '#bfdbfe', label: 'Blue' },
+  { color: 'pink', hex: '#fbcfe8', label: 'Pink' },
+]
+
+function colorHex(color: HighlightColor): string {
+  return HIGHLIGHT_COLORS.find((entry) => entry.color === color)?.hex ?? '#fde68a'
+}
 
 type Theme = 'light' | 'sepia' | 'dark'
 
@@ -94,6 +112,12 @@ export function ReaderView() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('toc')
   const currentLocatorRef = useRef<string | null>(null)
+  const epubBookRef = useRef<EpubBook | null>(null)
+  const appliedHighlightIdsRef = useRef<Set<number>>(new Set())
+  const [pendingSelection, setPendingSelection] = useState<{
+    cfiRange: string
+    text: string
+  } | null>(null)
   const queryClient = useQueryClient()
   const toast = useToast()
 
@@ -106,6 +130,12 @@ export function ReaderView() {
   const bookmarksQuery = useQuery({
     queryKey: ['bookmarks', numericId],
     queryFn: () => listBookmarks(numericId),
+    enabled: Number.isFinite(numericId) && numericId > 0,
+  })
+
+  const highlightsQuery = useQuery({
+    queryKey: ['highlights', numericId],
+    queryFn: () => listHighlights(numericId),
     enabled: Number.isFinite(numericId) && numericId > 0,
   })
 
@@ -151,6 +181,82 @@ export function ReaderView() {
     renditionRef.current?.display(bookmark.locator)
   }
 
+  const addHighlightMutation = useMutation({
+    mutationFn: ({
+      cfiRange,
+      text,
+      color,
+    }: {
+      cfiRange: string
+      text: string
+      color: HighlightColor
+    }) => createHighlight(numericId, cfiRange, text, color, null),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['highlights', numericId] })
+      toast.success('Highlight saved.')
+      setPendingSelection(null)
+    },
+    onError: (caught) => {
+      toast.error(`Highlight failed: ${caught instanceof Error ? caught.message : 'unknown'}`)
+    },
+  })
+
+  const updateHighlightMutation = useMutation({
+    mutationFn: ({
+      highlightId,
+      body,
+    }: {
+      highlightId: number
+      body: { color?: HighlightColor; note?: string | null; clear_note?: boolean }
+    }) => updateHighlight(numericId, highlightId, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['highlights', numericId] })
+    },
+    onError: (caught) => {
+      toast.error(`Update failed: ${caught instanceof Error ? caught.message : 'unknown'}`)
+    },
+  })
+
+  const deleteHighlightMutation = useMutation({
+    mutationFn: (highlightId: number) => deleteHighlightRequest(numericId, highlightId),
+    onSuccess: (_data, highlightId) => {
+      queryClient.invalidateQueries({ queryKey: ['highlights', numericId] })
+      const rendition = renditionRef.current
+      const target = highlightsQuery.data?.find((entry) => entry.id === highlightId)
+      if (rendition && target) {
+        try {
+          rendition.annotations.remove(target.locator_range, 'highlight')
+        } catch {
+          // Annotation may not be currently rendered (different chapter); ignore.
+        }
+      }
+      appliedHighlightIdsRef.current.delete(highlightId)
+    },
+    onError: (caught) => {
+      toast.error(`Delete failed: ${caught instanceof Error ? caught.message : 'unknown'}`)
+    },
+  })
+
+  async function handleEditNote(highlight: Highlight) {
+    const next = await toast.prompt({
+      title: 'Edit note',
+      message: 'Note for this highlight (leave blank to clear).',
+      initialValue: highlight.note ?? '',
+      multiline: true,
+      confirmLabel: 'Save',
+    })
+    if (next === null) return
+    const trimmed = next.trim()
+    updateHighlightMutation.mutate({
+      highlightId: highlight.id,
+      body: trimmed ? { note: trimmed } : { clear_note: true },
+    })
+  }
+
+  function handleJumpToHighlight(highlight: Highlight) {
+    renditionRef.current?.display(highlight.locator_range)
+  }
+
   const epubFormat = book?.formats.find((format) => format.format.toLowerCase() === 'epub')
   const pdfFormat = book?.formats.find((format) => format.format.toLowerCase() === 'pdf')
 
@@ -174,6 +280,7 @@ export function ReaderView() {
       .then(([buffer, progress]) => {
         if (cancelled || !containerRef.current) return
         bookInstance = ePub(buffer)
+        epubBookRef.current = bookInstance
         const rendition = bookInstance.renderTo(containerRef.current, {
           width: '100%',
           height: '100%',
@@ -181,6 +288,16 @@ export function ReaderView() {
           spread: 'auto',
         })
         renditionRef.current = rendition
+
+        rendition.on('selected', (cfiRange: string, contents: { window?: Window }) => {
+          let text = ''
+          try {
+            text = contents?.window?.getSelection?.()?.toString() ?? ''
+          } catch {
+            text = ''
+          }
+          setPendingSelection({ cfiRange, text: text.trim() })
+        })
 
         // Register all themes up front so toggling later is one select call.
         for (const [name, rules] of Object.entries(THEME_STYLES)) {
@@ -238,12 +355,50 @@ export function ReaderView() {
       if (bookInstance) {
         bookInstance.destroy()
       }
+      epubBookRef.current = null
+      appliedHighlightIdsRef.current = new Set()
       setToc([])
+      setPendingSelection(null)
     }
     // theme + fontSize intentionally omitted: change handlers below apply
     // them to the live rendition so we don't need a full reinit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epubFormat, numericId])
+
+  // Apply highlights to the rendition once it's ready and whenever the list changes.
+  useEffect(() => {
+    const rendition = renditionRef.current
+    if (!rendition) return
+    const data = highlightsQuery.data ?? []
+    const knownIds = new Set(data.map((entry) => entry.id))
+    // Remove annotations for highlights that have been deleted.
+    for (const oldId of Array.from(appliedHighlightIdsRef.current)) {
+      if (!knownIds.has(oldId)) {
+        appliedHighlightIdsRef.current.delete(oldId)
+      }
+    }
+    // Add annotations for highlights we haven't applied yet.
+    for (const entry of data) {
+      if (appliedHighlightIdsRef.current.has(entry.id)) continue
+      try {
+        rendition.annotations.add(
+          'highlight',
+          entry.locator_range,
+          { id: entry.id },
+          undefined,
+          undefined,
+          {
+            fill: colorHex(entry.color),
+            'fill-opacity': '0.4',
+            'mix-blend-mode': 'multiply',
+          },
+        )
+        appliedHighlightIdsRef.current.add(entry.id)
+      } catch {
+        // CFI may not resolve (corrupt range, chapter not yet loaded); skip.
+      }
+    }
+  }, [highlightsQuery.data])
 
   // Apply theme changes to the existing rendition.
   useEffect(() => {
@@ -334,6 +489,22 @@ export function ReaderView() {
           </button>
           <button
             type="button"
+            onClick={() => {
+              setSidebarTab('highlights')
+              setIsSidebarOpen((current) => !(current && sidebarTab === 'highlights'))
+            }}
+            aria-expanded={isSidebarOpen && sidebarTab === 'highlights'}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+          >
+            Highlights
+            {highlightsQuery.data && highlightsQuery.data.length > 0 && (
+              <span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-600">
+                {highlightsQuery.data.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
             onClick={handleAddBookmark}
             disabled={addBookmarkMutation.isPending}
             className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
@@ -398,6 +569,36 @@ export function ReaderView() {
       )}
       {isLoading && !error && <p className="text-slate-500">Loading book…</p>}
 
+      {pendingSelection && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm">
+          <span className="text-slate-500">Highlight:</span>
+          {HIGHLIGHT_COLORS.map((swatch) => (
+            <button
+              key={swatch.color}
+              type="button"
+              onClick={() =>
+                addHighlightMutation.mutate({
+                  cfiRange: pendingSelection.cfiRange,
+                  text: pendingSelection.text,
+                  color: swatch.color,
+                })
+              }
+              disabled={addHighlightMutation.isPending}
+              aria-label={swatch.label}
+              className="h-5 w-5 rounded-full border border-slate-300 disabled:opacity-50"
+              style={{ background: swatch.hex }}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => setPendingSelection(null)}
+            className="ml-auto text-slate-400 hover:text-slate-900"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-1 gap-3 overflow-hidden">
         {isSidebarOpen && (
           <aside className="w-64 shrink-0 overflow-y-auto rounded-md border border-slate-200 bg-white p-3 text-sm shadow-sm">
@@ -428,7 +629,7 @@ export function ReaderView() {
                   </ul>
                 )}
               </>
-            ) : (
+            ) : sidebarTab === 'bookmarks' ? (
               <>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Bookmarks
@@ -466,6 +667,77 @@ export function ReaderView() {
                         >
                           ×
                         </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Highlights
+                </h3>
+                {!highlightsQuery.data || highlightsQuery.data.length === 0 ? (
+                  <p className="text-xs text-slate-500">
+                    Select text in the book to create a highlight.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {highlightsQuery.data.map((highlight) => (
+                      <li
+                        key={highlight.id}
+                        className="rounded border border-slate-200 p-2"
+                        style={{ borderLeftColor: colorHex(highlight.color), borderLeftWidth: 4 }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleJumpToHighlight(highlight)}
+                          className="block w-full text-left text-xs text-slate-700"
+                        >
+                          <span className="line-clamp-3">{highlight.text || 'Highlight'}</span>
+                        </button>
+                        {highlight.note && (
+                          <p className="mt-1 text-[11px] italic text-slate-600">
+                            {highlight.note}
+                          </p>
+                        )}
+                        <div className="mt-1 flex items-center gap-1">
+                          {HIGHLIGHT_COLORS.map((swatch) => (
+                            <button
+                              key={swatch.color}
+                              type="button"
+                              onClick={() =>
+                                updateHighlightMutation.mutate({
+                                  highlightId: highlight.id,
+                                  body: { color: swatch.color },
+                                })
+                              }
+                              aria-label={`Recolor to ${swatch.label}`}
+                              className={`h-4 w-4 rounded-full border ${
+                                highlight.color === swatch.color
+                                  ? 'border-slate-700'
+                                  : 'border-slate-300'
+                              }`}
+                              style={{ background: swatch.hex }}
+                            />
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => handleEditNote(highlight)}
+                            className="ml-auto text-[10px] text-slate-500 hover:text-slate-900"
+                          >
+                            Note
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteHighlightMutation.mutate(highlight.id)}
+                            disabled={deleteHighlightMutation.isPending}
+                            aria-label="Delete highlight"
+                            className="text-slate-400 hover:text-red-600 disabled:opacity-50"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ul>

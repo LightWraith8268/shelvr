@@ -18,6 +18,7 @@ from shelvr.formats.base import FormatReadError, UnsupportedFormatError
 from shelvr.plugins import PluginRegistry
 from shelvr.repositories.bookmarks import BookmarkRepository
 from shelvr.repositories.books import BookRepository
+from shelvr.repositories.highlights import HighlightRepository
 from shelvr.repositories.reading_progress import ReadingProgressRepository
 from shelvr.schemas.book import (
     BookList,
@@ -29,6 +30,7 @@ from shelvr.schemas.book import (
     BulkTagResponse,
 )
 from shelvr.schemas.bookmark import BookmarkCreate, BookmarkRead
+from shelvr.schemas.highlight import HighlightCreate, HighlightRead, HighlightUpdate
 from shelvr.schemas.reading_progress import ReadingProgressRead, ReadingProgressUpsert
 from shelvr.services.covers import save_cover
 from shelvr.services.hashing import sha256_bytes
@@ -343,6 +345,89 @@ async def delete_bookmark(
     if existing is None or existing.book_id != book_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bookmark not found")
     await repo.delete(bookmark_id=bookmark_id, user_id=user.id)
+    await session.commit()
+    return None
+
+
+@router.get("/{book_id}/highlights", response_model=list[HighlightRead])
+async def list_highlights(
+    book_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[HighlightRead]:
+    """List the current user's highlights for the book, oldest first."""
+    book_repo = BookRepository(session)
+    if await book_repo.get_book(book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    rows = await HighlightRepository(session).list_for_book(book_id=book_id, user_id=user.id)
+    return [HighlightRead.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/{book_id}/highlights",
+    response_model=HighlightRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_highlight(
+    book_id: int,
+    body: HighlightCreate,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> HighlightRead:
+    """Create a highlight for the current user on the given book."""
+    book_repo = BookRepository(session)
+    if await book_repo.get_book(book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    highlight = await HighlightRepository(session).create(
+        book_id=book_id,
+        user_id=user.id,
+        locator_range=body.locator_range,
+        text=body.text,
+        color=body.color,
+        note=body.note,
+    )
+    await session.commit()
+    return HighlightRead.model_validate(highlight)
+
+
+@router.patch("/{book_id}/highlights/{highlight_id}", response_model=HighlightRead)
+async def update_highlight(
+    book_id: int,
+    highlight_id: int,
+    body: HighlightUpdate,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> HighlightRead:
+    """Update color and/or note. Pass clear_note=true to remove an existing note."""
+    repo = HighlightRepository(session)
+    existing = await repo.get(highlight_id=highlight_id, user_id=user.id)
+    if existing is None or existing.book_id != book_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="highlight not found")
+    updated = await repo.update(
+        highlight_id=highlight_id,
+        user_id=user.id,
+        color=body.color,
+        note=body.note,
+        clear_note=body.clear_note,
+    )
+    assert updated is not None  # existence checked above
+    await session.commit()
+    return HighlightRead.model_validate(updated)
+
+
+@router.delete("/{book_id}/highlights/{highlight_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_highlight(
+    book_id: int,
+    highlight_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Delete one of the current user's highlights. 404 if it doesn't belong to them."""
+    repo = HighlightRepository(session)
+    existing = await repo.get(highlight_id=highlight_id, user_id=user.id)
+    if existing is None or existing.book_id != book_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="highlight not found")
+    await repo.delete(highlight_id=highlight_id, user_id=user.id)
     await session.commit()
     return None
 
