@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import ePub from 'epubjs'
 import type { Book as EpubBook, Rendition } from 'epubjs'
 import { formatFileUrl, getBook } from '../api/books'
 import { apiFetch } from '../api/client'
+import {
+  createBookmark,
+  deleteBookmark as deleteBookmarkRequest,
+  listBookmarks,
+} from '../api/bookmarks'
+import type { Bookmark } from '../api/bookmarks'
 import { getReadingProgress, putReadingProgress } from '../api/progress'
+import { useToast } from '../components/ToastProvider'
 import { PdfReader } from './PdfReader'
+
+type SidebarTab = 'toc' | 'bookmarks'
 
 type Theme = 'light' | 'sepia' | 'dark'
 
@@ -82,13 +91,65 @@ export function ReaderView() {
   const [theme, setTheme] = useState<Theme>(() => loadStoredTheme())
   const [fontSize, setFontSize] = useState<number>(() => loadStoredFontSize())
   const [toc, setToc] = useState<TocEntry[]>([])
-  const [isTocOpen, setIsTocOpen] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('toc')
+  const currentLocatorRef = useRef<string | null>(null)
+  const queryClient = useQueryClient()
+  const toast = useToast()
 
   const { data: book } = useQuery({
     queryKey: ['book', numericId],
     queryFn: () => getBook(numericId),
     enabled: Number.isFinite(numericId) && numericId > 0,
   })
+
+  const bookmarksQuery = useQuery({
+    queryKey: ['bookmarks', numericId],
+    queryFn: () => listBookmarks(numericId),
+    enabled: Number.isFinite(numericId) && numericId > 0,
+  })
+
+  const addBookmarkMutation = useMutation({
+    mutationFn: ({ locator, label }: { locator: string; label: string | null }) =>
+      createBookmark(numericId, locator, label),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookmarks', numericId] })
+      toast.success('Bookmark added.')
+    },
+    onError: (caught) => {
+      toast.error(`Bookmark failed: ${caught instanceof Error ? caught.message : 'unknown'}`)
+    },
+  })
+
+  const removeBookmarkMutation = useMutation({
+    mutationFn: (bookmarkId: number) => deleteBookmarkRequest(numericId, bookmarkId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookmarks', numericId] })
+    },
+    onError: (caught) => {
+      toast.error(`Delete failed: ${caught instanceof Error ? caught.message : 'unknown'}`)
+    },
+  })
+
+  async function handleAddBookmark() {
+    const locator = currentLocatorRef.current
+    if (!locator) {
+      toast.error('No reading position yet — wait for the page to load.')
+      return
+    }
+    const label = await toast.prompt({
+      title: 'Add bookmark',
+      message: 'Optional label for this bookmark.',
+      placeholder: 'Chapter 3 — the duel',
+      confirmLabel: 'Save',
+    })
+    if (label === null) return
+    addBookmarkMutation.mutate({ locator, label: label.trim() || null })
+  }
+
+  function handleJumpTo(bookmark: Bookmark) {
+    renditionRef.current?.display(bookmark.locator)
+  }
 
   const epubFormat = book?.formats.find((format) => format.format.toLowerCase() === 'epub')
   const pdfFormat = book?.formats.find((format) => format.format.toLowerCase() === 'pdf')
@@ -132,6 +193,7 @@ export function ReaderView() {
           const cfi = location?.start?.cfi
           const percent = location?.start?.percentage
           if (typeof cfi !== 'string' || typeof percent !== 'number') return
+          currentLocatorRef.current = cfi
           if (cfi === lastSavedLocator) return
           if (saveTimer !== null) window.clearTimeout(saveTimer)
           saveTimer = window.setTimeout(() => {
@@ -242,16 +304,42 @@ export function ReaderView() {
           ← Back to book
         </Link>
         <div className="flex flex-wrap items-center gap-2">
-          {toc.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setIsTocOpen((current) => !current)}
-              aria-expanded={isTocOpen}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
-            >
-              {isTocOpen ? 'Hide contents' : 'Contents'}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSidebarTab('toc')
+              setIsSidebarOpen((current) => !(current && sidebarTab === 'toc'))
+            }}
+            aria-expanded={isSidebarOpen && sidebarTab === 'toc'}
+            disabled={toc.length === 0}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+          >
+            Contents
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSidebarTab('bookmarks')
+              setIsSidebarOpen((current) => !(current && sidebarTab === 'bookmarks'))
+            }}
+            aria-expanded={isSidebarOpen && sidebarTab === 'bookmarks'}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+          >
+            Bookmarks
+            {bookmarksQuery.data && bookmarksQuery.data.length > 0 && (
+              <span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-600">
+                {bookmarksQuery.data.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={handleAddBookmark}
+            disabled={addBookmarkMutation.isPending}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+          >
+            {addBookmarkMutation.isPending ? 'Saving…' : '+ Bookmark'}
+          </button>
           <label className="flex items-center gap-1 text-xs text-slate-600">
             Theme
             <select
@@ -311,28 +399,79 @@ export function ReaderView() {
       {isLoading && !error && <p className="text-slate-500">Loading book…</p>}
 
       <div className="flex flex-1 gap-3 overflow-hidden">
-        {isTocOpen && toc.length > 0 && (
+        {isSidebarOpen && (
           <aside className="w-64 shrink-0 overflow-y-auto rounded-md border border-slate-200 bg-white p-3 text-sm shadow-sm">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Contents
-            </h3>
-            <ul className="space-y-0.5">
-              {toc.map((entry, index) => (
-                <li key={`${entry.href}-${index}`}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      renditionRef.current?.display(entry.href)
-                    }}
-                    className="block w-full truncate rounded px-2 py-1 text-left text-slate-700 hover:bg-slate-100"
-                    style={{ paddingLeft: `${0.5 + entry.depth * 0.75}rem` }}
-                    title={entry.label}
-                  >
-                    {entry.label || '—'}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {sidebarTab === 'toc' ? (
+              <>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Contents
+                </h3>
+                {toc.length === 0 ? (
+                  <p className="text-xs text-slate-500">This book has no table of contents.</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {toc.map((entry, index) => (
+                      <li key={`${entry.href}-${index}`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            renditionRef.current?.display(entry.href)
+                          }}
+                          className="block w-full truncate rounded px-2 py-1 text-left text-slate-700 hover:bg-slate-100"
+                          style={{ paddingLeft: `${0.5 + entry.depth * 0.75}rem` }}
+                          title={entry.label}
+                        >
+                          {entry.label || '—'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Bookmarks
+                </h3>
+                {!bookmarksQuery.data || bookmarksQuery.data.length === 0 ? (
+                  <p className="text-xs text-slate-500">
+                    No bookmarks yet. Use “+ Bookmark” to save your current page.
+                  </p>
+                ) : (
+                  <ul className="space-y-1">
+                    {bookmarksQuery.data.map((bookmark) => (
+                      <li
+                        key={bookmark.id}
+                        className="flex items-start justify-between gap-2 rounded px-2 py-1 hover:bg-slate-100"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleJumpTo(bookmark)}
+                          className="flex-1 truncate text-left text-slate-700"
+                          title={bookmark.label ?? bookmark.locator}
+                        >
+                          <span className="block truncate">
+                            {bookmark.label || 'Bookmark'}
+                          </span>
+                          <span className="block truncate text-[10px] text-slate-400">
+                            {new Date(bookmark.created_at).toLocaleString()}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeBookmarkMutation.mutate(bookmark.id)}
+                          disabled={removeBookmarkMutation.isPending}
+                          aria-label="Delete bookmark"
+                          className="text-slate-400 hover:text-red-600 disabled:opacity-50"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </aside>
         )}
         <div

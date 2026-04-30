@@ -16,6 +16,7 @@ from shelvr.config import Settings
 from shelvr.db.models import Book, User
 from shelvr.formats.base import FormatReadError, UnsupportedFormatError
 from shelvr.plugins import PluginRegistry
+from shelvr.repositories.bookmarks import BookmarkRepository
 from shelvr.repositories.books import BookRepository
 from shelvr.repositories.reading_progress import ReadingProgressRepository
 from shelvr.schemas.book import (
@@ -27,6 +28,7 @@ from shelvr.schemas.book import (
     BulkTagRequest,
     BulkTagResponse,
 )
+from shelvr.schemas.bookmark import BookmarkCreate, BookmarkRead
 from shelvr.schemas.reading_progress import ReadingProgressRead, ReadingProgressUpsert
 from shelvr.services.covers import save_cover
 from shelvr.services.hashing import sha256_bytes
@@ -290,6 +292,57 @@ async def delete_progress(
     if await book_repo.get_book(book_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
     await ReadingProgressRepository(session).delete(book_id=book_id, user_id=user.id)
+    await session.commit()
+    return None
+
+
+@router.get("/{book_id}/bookmarks", response_model=list[BookmarkRead])
+async def list_bookmarks(
+    book_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[BookmarkRead]:
+    """List the current user's bookmarks for the book, oldest first."""
+    book_repo = BookRepository(session)
+    if await book_repo.get_book(book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    rows = await BookmarkRepository(session).list_for_book(book_id=book_id, user_id=user.id)
+    return [BookmarkRead.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/{book_id}/bookmarks", response_model=BookmarkRead, status_code=status.HTTP_201_CREATED
+)
+async def create_bookmark(
+    book_id: int,
+    body: BookmarkCreate,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> BookmarkRead:
+    """Create a bookmark for the current user on the given book."""
+    book_repo = BookRepository(session)
+    if await book_repo.get_book(book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    bookmark = await BookmarkRepository(session).create(
+        book_id=book_id, user_id=user.id, locator=body.locator, label=body.label
+    )
+    await session.commit()
+    return BookmarkRead.model_validate(bookmark)
+
+
+@router.delete("/{book_id}/bookmarks/{bookmark_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_bookmark(
+    book_id: int,
+    bookmark_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Delete one of the current user's bookmarks. 404 if it doesn't belong to them."""
+    repo = BookmarkRepository(session)
+    existing = await repo.get(bookmark_id=bookmark_id, user_id=user.id)
+    if existing is None or existing.book_id != book_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bookmark not found")
+    await repo.delete(bookmark_id=bookmark_id, user_id=user.id)
     await session.commit()
     return None
 
