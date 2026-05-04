@@ -9,6 +9,7 @@ import {
   putReadingProgress,
 } from '../api/progress'
 import { useAuth } from '../auth/AuthProvider'
+import { useToast } from '../components/ToastProvider'
 import type { Format } from '../api/types'
 
 function formatBytes(bytes: number): string {
@@ -29,6 +30,7 @@ export function BookDetail() {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
+  const toast = useToast()
 
   const { data: book, isLoading, error } = useQuery({
     queryKey: ['book', numericId],
@@ -44,7 +46,11 @@ export function BookDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['books'] })
       queryClient.removeQueries({ queryKey: ['book', numericId] })
+      toast.success('Book deleted.')
       navigate('/')
+    },
+    onError: (error) => {
+      toast.error(`Delete failed: ${error instanceof Error ? error.message : 'unknown'}`)
     },
   })
 
@@ -60,6 +66,10 @@ export function BookDetail() {
     onSuccess: (updated) => {
       queryClient.setQueryData(['progress', numericId], updated)
       queryClient.invalidateQueries({ queryKey: ['me', 'progress'] })
+      toast.success('Marked as read.')
+    },
+    onError: (error) => {
+      toast.error(`Update failed: ${error instanceof Error ? error.message : 'unknown'}`)
     },
   })
 
@@ -68,14 +78,21 @@ export function BookDetail() {
     onSuccess: () => {
       queryClient.setQueryData(['progress', numericId], null)
       queryClient.invalidateQueries({ queryKey: ['me', 'progress'] })
+      toast.success('Progress cleared.')
+    },
+    onError: (error) => {
+      toast.error(`Clear failed: ${error instanceof Error ? error.message : 'unknown'}`)
     },
   })
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!book) return
-    const ok = window.confirm(
-      `Delete "${book.title}"? This removes the book row and its files from disk. Cannot be undone.`,
-    )
+    const ok = await toast.confirm({
+      title: `Delete "${book.title}"?`,
+      message: 'Removes the book row and files from disk. Cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
     if (ok) deleteMutation.mutate()
   }
 

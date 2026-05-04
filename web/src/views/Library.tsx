@@ -13,6 +13,7 @@ import { useAuth } from '../auth/AuthProvider'
 import type { Book, BookSort } from '../api/types'
 import { BookCard } from '../components/BookCard'
 import { ContinueReading } from '../components/ContinueReading'
+import { useToast } from '../components/ToastProvider'
 
 const PAGE_SIZE = 50
 
@@ -24,6 +25,7 @@ export function Library({ onBookSelect }: Props) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [page, setPage] = useState(0)
   const [sort, setSort] = useState<BookSort>('added')
   const [searchInput, setSearchInput] = useState('')
@@ -89,11 +91,16 @@ export function Library({ onBookSelect }: Props) {
 
   const bulkDeleteMutation = useMutation({
     mutationFn: (ids: number[]) => bulkDeleteBooks(ids),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['books'] })
       queryClient.invalidateQueries({ queryKey: ['facets'] })
       setSelectedIds(new Set())
       setSelectMode(false)
+      const removed = result?.deleted?.length ?? 0
+      toast.success(`Deleted ${removed} book${removed === 1 ? '' : 's'}.`)
+    },
+    onError: (error) => {
+      toast.error(`Bulk delete failed: ${error instanceof Error ? error.message : 'unknown'}`)
     },
   })
 
@@ -110,17 +117,26 @@ export function Library({ onBookSelect }: Props) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['books'] })
       queryClient.invalidateQueries({ queryKey: ['facets'] })
+      toast.success('Tags updated.')
+    },
+    onError: (error) => {
+      toast.error(`Bulk tag failed: ${error instanceof Error ? error.message : 'unknown'}`)
     },
   })
 
-  function promptBulkTag(mode: 'add' | 'remove') {
+  async function promptBulkTag(mode: 'add' | 'remove') {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
-    const raw = window.prompt(
-      mode === 'add'
-        ? `Tags to ADD to ${ids.length} book${ids.length === 1 ? '' : 's'} (comma-separated):`
-        : `Tags to REMOVE from ${ids.length} book${ids.length === 1 ? '' : 's'} (comma-separated):`,
-    )
+    const action = mode === 'add' ? 'ADD' : 'REMOVE'
+    const preposition = mode === 'add' ? 'to' : 'from'
+    const raw = await toast.prompt({
+      title: `${action} tags`,
+      message: `Comma-separated tags to ${action.toLowerCase()} ${preposition} ${ids.length} book${
+        ids.length === 1 ? '' : 's'
+      }.`,
+      placeholder: 'fantasy, fiction',
+      confirmLabel: action,
+    })
     if (!raw) return
     const tags = raw
       .split(',')
@@ -148,12 +164,15 @@ export function Library({ onBookSelect }: Props) {
     setSelectedIds(new Set())
   }
 
-  function confirmAndBulkDelete() {
+  async function confirmAndBulkDelete() {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
-    const ok = window.confirm(
-      `Delete ${ids.length} book${ids.length === 1 ? '' : 's'}? Removes rows and files. Cannot be undone.`,
-    )
+    const ok = await toast.confirm({
+      title: `Delete ${ids.length} book${ids.length === 1 ? '' : 's'}?`,
+      message: 'Removes rows and files from disk. Cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
     if (ok) bulkDeleteMutation.mutate(ids)
   }
 

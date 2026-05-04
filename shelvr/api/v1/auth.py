@@ -14,6 +14,7 @@ from shelvr.auth.service import AuthService
 from shelvr.auth.tokens import TokenError, decode_token
 from shelvr.config import Settings
 from shelvr.db.models import User
+from shelvr.repositories.bookmarks import BookmarkRepository
 from shelvr.repositories.reading_progress import ReadingProgressRepository
 from shelvr.repositories.refresh_tokens import RefreshTokenRepository
 from shelvr.repositories.users import UserRepository
@@ -155,6 +156,27 @@ async def my_recent_books(
                 ),
             }
             for book in books
+        ]
+    }
+
+
+@router.get("/me/bookmarks")
+async def my_bookmarks(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict[str, list[dict[str, Any]]]:
+    """Return the current user's most recent bookmarks across all books."""
+    rows = await BookmarkRepository(session).list_for_user(user_id=user.id)
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "book_id": row.book_id,
+                "locator": row.locator,
+                "label": row.label,
+                "created_at": row.created_at.isoformat(),
+            }
+            for row in rows
         ]
     }
 
