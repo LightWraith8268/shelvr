@@ -32,6 +32,7 @@ from shelvr.schemas.book import (
 from shelvr.schemas.bookmark import BookmarkCreate, BookmarkRead
 from shelvr.schemas.highlight import HighlightCreate, HighlightRead, HighlightUpdate
 from shelvr.schemas.reading_progress import ReadingProgressRead, ReadingProgressUpsert
+from shelvr.schemas.sync import Locator, LocatorLocations
 from shelvr.services.covers import save_cover
 from shelvr.services.hashing import sha256_bytes
 from shelvr.services.importer import import_file
@@ -296,6 +297,65 @@ async def delete_progress(
     await ReadingProgressRepository(session).delete(book_id=book_id, user_id=user.id)
     await session.commit()
     return None
+
+
+@router.get("/{book_id}/sync", response_model=Locator | None)
+async def get_sync_locator(
+    book_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> Locator | None:
+    """Return the current user's position as a Readium Locator, or null if unset."""
+    book_repo = BookRepository(session)
+    if await book_repo.get_book(book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    progress = await ReadingProgressRepository(session).get(book_id=book_id, user_id=user.id)
+    if progress is None:
+        return None
+    return Locator(
+        locations=LocatorLocations(totalProgression=progress.percent, fragment=[progress.locator]),
+        modified=progress.updated_at,
+    )
+
+
+@router.put("/{book_id}/sync", response_model=Locator)
+async def put_sync_locator(
+    book_id: int,
+    body: Locator,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> Locator:
+    """Upsert the current user's position from a Readium Locator.
+
+    Reads ``locations.fragment[0]`` as the opaque locator and
+    ``locations.totalProgression`` (falling back to ``progression``) as the
+    percent. Locators with neither a fragment nor a progression are rejected.
+    """
+    book_repo = BookRepository(session)
+    if await book_repo.get_book(book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="book not found")
+    locator_value = body.locations.fragment[0] if body.locations.fragment else None
+    if not locator_value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="locations.fragment must contain at least one locator",
+        )
+    percent = body.locations.total_progression
+    if percent is None:
+        percent = body.locations.progression
+    if percent is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="locations.totalProgression or locations.progression is required",
+        )
+    progress = await ReadingProgressRepository(session).upsert(
+        book_id=book_id, user_id=user.id, locator=locator_value, percent=percent
+    )
+    await session.commit()
+    return Locator(
+        locations=LocatorLocations(totalProgression=progress.percent, fragment=[progress.locator]),
+        modified=progress.updated_at,
+    )
 
 
 @router.get("/{book_id}/bookmarks", response_model=list[BookmarkRead])
