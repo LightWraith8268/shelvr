@@ -2,6 +2,14 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-05-04
+
+- Merge pull request #19 from LightWraith8268/claude/dev
+- feat(api): Readium Locator sync endpoints for cross-reader position roaming
+- feat(reader): EPUB text-range highlights with color and notes
+- feat(reader): per-user bookmarks with sidebar list
+- feat(web): toast and modal system replaces native alert/prompt/confirm
+
 ## [0.15.0] - 2026-04-26
 
 - Merge pull request #18 from LightWraith8268/claude/dev
