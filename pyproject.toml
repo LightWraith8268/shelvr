@@ -9,7 +9,11 @@ description = "Self-hosted ebook library server — part of Ink & Iron Apps"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "AGPL-3.0-only" }
-authors = [{ name = "Ink & Iron Apps", email = "support@inknironapps.com" }]
+authors = [{ name = "Ink & Iron Apps", email = "info@inknironapps.com" }]
+maintainers = [
+    { name = "Ink & Iron Apps Support", email = "support@inknironapps.com" },
+    { name = "Ink & Iron Apps Security", email = "security@inknironapps.com" },
+]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Framework :: FastAPI",
