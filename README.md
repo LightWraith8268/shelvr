@@ -83,3 +83,11 @@ The server is free and open source. AGPL-3.0 protects against commercial repacka
 - [Kickoff plan](./docs/KICKOFF.md)
 - [v1 design spec](./docs/superpowers/specs/2026-04-17-shelvr-v1-client-and-plugin-design.md)
 - [Changelog](./CHANGELOG.md)
+- [Security policy](./SECURITY.md)
+
+## Contact
+
+- **General / brand inquiries:** info@inknironapps.com
+- **Bug reports & feature requests:** support@inknironapps.com
+- **Security disclosures:** security@inknironapps.com (see [SECURITY.md](./SECURITY.md))
+- **Privacy / data-rights requests:** privacy@inknironapps.com
