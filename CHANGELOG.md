@@ -2,6 +2,11 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-05-06
+
+- Merge pull request #20 from LightWraith8268/claude/dev
+- feat(plugins): admin .zip upload and uninstall with validation
+
 ## [0.16.0] - 2026-05-04
 
 - Merge pull request #19 from LightWraith8268/claude/dev
